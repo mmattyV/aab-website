@@ -66,13 +66,13 @@ export default function MenuButton({
           >
             Brothers
           </Link>
-          <Link
+          {/* <Link
             href="/recruits"
             className="text-lg hover:underline"
             onClick={toggleMenu}
           >
             Recruits
-          </Link>
+          </Link> */}
           <Link
             href="/constitution"
             className="text-lg hover:underline"
