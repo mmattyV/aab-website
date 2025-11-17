@@ -53,6 +53,7 @@ export const authOptions = {
         const brother = user as BrotherUser;
         token.id = brother.id;
         token.email = brother.personal_email;
+        token.isAdmin = brother.is_admin;
       }
       return token;
     },
@@ -61,6 +62,7 @@ export const authOptions = {
       if (session.user) {
         session.user.id = token.id as string;
         session.user.email = token.email as string;
+        session.user.isAdmin = token.isAdmin as boolean;
       }
       return session;
     }
