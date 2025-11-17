@@ -3,7 +3,7 @@ import Image from "next/image"; // Import Next.js Image component
 import { FooterProps } from "@/app/lib/definitions";
 
 export const Footer: React.FC<FooterProps> = ({ year, logo, icon }) => (
-  <div className="flex flex-col items-center justify-center w-full max-w-4xl text-sm font-bold tracking-widest text-center text-white py-6">
+  <div className="flex flex-col items-center justify-center w-full max-w-4xl text-sm font-bold tracking-widest text-center text-black py-6">
     {/* Logo */}
     <div className="mb-4">
       <Image

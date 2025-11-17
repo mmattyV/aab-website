@@ -17,9 +17,9 @@ export default async function Page({ searchParams }: PageProps) {
   const tab = params?.tab || "ALL"; // Provide a default if undefined
 
   return (
-    <div className="flex overflow-hidden flex-col py-64 bg-black max-md:py-24">
+    <div className="flex overflow-hidden flex-col py-64 bg-white max-md:py-24">
       {/* Page Title */}
-      <div className="gap-2.5 self-start p-2.5 ml-12 text-9xl text-white max-md:max-w-full max-md:text-6xl max-md:ml-[22px] max-sm:text-4xl">
+      <div className="gap-2.5 self-start p-2.5 ml-12 text-9xl text-black max-md:max-w-full max-md:text-6xl max-md:ml-[22px] max-sm:text-4xl">
         OUR BROTHERS
       </div>
 
