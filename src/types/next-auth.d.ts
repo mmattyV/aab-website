@@ -10,9 +10,9 @@ declare module "next-auth" {
   }
 
   interface User {
-    id: string;
-    email: string;
-    isAdmin: boolean;
+    id?: string;
+    email?: string;
+    isAdmin?: boolean;
   }
 }
 

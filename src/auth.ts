@@ -6,7 +6,6 @@ import postgres from "postgres";
 import { authConfig } from "./auth.config";
 import type { Session, User } from "next-auth";
 import type { JWT } from "next-auth/jwt";
-import { BrotherUser } from "./app/lib/definitions";
 
 const sql = postgres(process.env.POSTGRES_URL!, { ssl: "require" });
 
@@ -24,7 +23,7 @@ export const authOptions = {
   ...authConfig,
   providers: [
     Credentials({
-      async authorize(credentials): Promise<BrotherUser | null> {
+      async authorize(credentials): Promise<User | null> {
         const parsedCredentials = z
           .object({ email: z.string().email(), password: z.string().min(6) })
           .safeParse(credentials);
@@ -41,19 +40,20 @@ export const authOptions = {
         const passwordsMatch = await bcrypt.compare(password, user.password);
         if (!passwordsMatch) return null;
         
-        // Return the user object that you want to store in the JWT
-        return user as BrotherUser;
+        return {
+          id: user.id,
+          email: user.personal_email,
+          isAdmin: user.is_admin,
+        };
       },
     }),
   ],
   callbacks: {
     async jwt({ token, user }: { token: JWT; user?: User }) {
       if (user) {
-        // Attach any fields you want
-        const brother = user as BrotherUser;
-        token.id = brother.id;
-        token.email = brother.personal_email;
-        token.isAdmin = brother.is_admin;
+        token.id = user.id as string;
+        token.email = user.email as string;
+        token.isAdmin = user.isAdmin as boolean;
       }
       return token;
     },
