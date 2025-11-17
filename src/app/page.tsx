@@ -26,11 +26,11 @@ const pillarsData = [
 
 export default function Page() {
   return (
-    <div className="flex overflow-hidden flex-col pt-0 pb-20 bg-black">
+    <div className="flex overflow-hidden flex-col pt-0 pb-20 bg-white">
       <Hero backgroundImage="/home-hero.jpeg" />
       <Mission text="We, the brothers of the Asian American Brotherhood, have united ourselves in order to forge a stronger sense of unity among Asian Americans in our community and to foster solidarity without coercion. In promoting understanding and bonds across ethnic lines, the Asian American Brotherhood seeks to empower both our members and the communities that we serve." />
 
-      <div className="gap-2.5 self-start py-2.5 pr-16 pl-14 mt-32 text-8xl text-white max-md:px-10 max-md:mt-10 max-md:max-w-full max-md:text-6xl">
+      <div className="gap-2.5 self-start py-2.5 pr-16 pl-14 mt-32 text-8xl text-black max-md:px-10 max-md:mt-10 max-md:max-w-full max-md:text-6xl">
         Three Pillars
       </div>
 

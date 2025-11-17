@@ -1,6 +1,6 @@
-import { Questrial } from "next/font/google";
+import { Spectral } from "next/font/google";
 
-export const questrial = Questrial({
+export const spectral = Spectral({
   subsets: ["latin"],
-  weight: "400",
+  weight: ["400", "600", "700"],
 });
