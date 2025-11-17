@@ -493,3 +493,71 @@ export async function updateBrotherProfile(
   revalidatePath("/brothers");
   redirect("/brothers");
 }
+
+// ============= DELETE BROTHER =============
+export async function deleteBrother(
+  prevState: State,
+  formData: FormData
+) {
+  const brotherId = formData.get("brotherId")?.toString();
+  const adminId = formData.get("adminId")?.toString();
+
+  if (!brotherId || !adminId) {
+    return { message: "Missing required fields." };
+  }
+
+  // Check if the user is an admin
+  const { checkIsAdmin } = await import("./data");
+  const isAdmin = await checkIsAdmin(adminId);
+  
+  if (!isAdmin) {
+    return { message: "Unauthorized. Only admins can delete brothers." };
+  }
+
+  try {
+    await sql`DELETE FROM recruit_comments WHERE brother_id = ${brotherId}`;
+    
+    await sql`DELETE FROM brothers WHERE id = ${brotherId}`;
+  } catch (error) {
+    console.error("Database Error:", error);
+    return { message: "Database Error: Failed to delete brother." };
+  }
+
+  revalidatePath("/admin");
+  revalidatePath("/brothers");
+  redirect("/admin");
+}
+
+// ============= DELETE RECRUIT =============
+export async function deleteRecruit(
+  prevState: State,
+  formData: FormData
+) {
+  const recruitId = formData.get("recruitId")?.toString();
+  const adminId = formData.get("adminId")?.toString();
+
+  if (!recruitId || !adminId) {
+    return { message: "Missing required fields." };
+  }
+
+  // Check if the user is an admin
+  const { checkIsAdmin } = await import("./data");
+  const isAdmin = await checkIsAdmin(adminId);
+  
+  if (!isAdmin) {
+    return { message: "Unauthorized. Only admins can delete recruits." };
+  }
+
+  try {
+    await sql`DELETE FROM recruit_comments WHERE recruit_id = ${recruitId}`;
+    
+    await sql`DELETE FROM recruits WHERE id = ${recruitId}`;
+  } catch (error) {
+    console.error("Database Error:", error);
+    return { message: "Database Error: Failed to delete recruit." };
+  }
+
+  revalidatePath("/admin");
+  revalidatePath("/recruits");
+  redirect("/admin");
+}

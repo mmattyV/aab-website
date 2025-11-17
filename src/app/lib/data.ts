@@ -158,3 +158,18 @@ export async function fetchUserCommentForRecruit(recruitId: string, userId: stri
     return null;
   }
 }
+
+export async function checkIsAdmin(userId: string): Promise<boolean> {
+  try {
+    const result = await sql`
+      SELECT is_admin 
+      FROM brothers 
+      WHERE id = ${userId}
+      LIMIT 1
+    `;
+    return result.rows[0]?.is_admin || false;
+  } catch (error) {
+    console.error("Error checking admin status:", error);
+    return false;
+  }
+}
