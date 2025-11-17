@@ -493,3 +493,117 @@ export async function updateBrotherProfile(
   revalidatePath("/brothers");
   redirect("/brothers");
 }
+
+// ============= ADMIN: DELETE BROTHER =============
+export async function deleteBrother(
+  brotherId: string,
+  adminId: string
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const adminResult = await sql`
+      SELECT is_admin FROM brothers WHERE id = ${adminId}
+    `;
+    
+    if (!adminResult.rows[0]?.is_admin) {
+      return { success: false, message: "Unauthorized: Admin access required." };
+    }
+
+    const adminCount = await sql`
+      SELECT COUNT(*) as count FROM brothers WHERE is_admin = TRUE
+    `;
+    
+    const targetBrother = await sql`
+      SELECT is_admin, image_url FROM brothers WHERE id = ${brotherId}
+    `;
+    
+    if (!targetBrother.rows[0]) {
+      return { success: false, message: "Brother not found." };
+    }
+    
+    if (targetBrother.rows[0].is_admin && parseInt(adminCount.rows[0].count) <= 1) {
+      return { success: false, message: "Cannot delete the last admin." };
+    }
+
+    await sql`
+      DELETE FROM recruit_comments WHERE brother_id = ${brotherId}
+    `;
+
+    await sql`
+      DELETE FROM brothers WHERE id = ${brotherId}
+    `;
+
+    const imageUrl = targetBrother.rows[0].image_url;
+    if (imageUrl) {
+      try {
+        const { del } = await import("@vercel/blob");
+        await del(imageUrl);
+      } catch (blobError) {
+        console.error("Failed to delete blob:", blobError);
+      }
+    }
+
+    console.log(`[AUDIT] Brother ${brotherId} deleted by admin ${adminId} at ${new Date().toISOString()}`);
+
+    revalidatePath("/brothers");
+    revalidatePath("/admin");
+    revalidatePath(`/brothers/${brotherId}/details`);
+
+    return { success: true, message: "Brother deleted successfully." };
+  } catch (error) {
+    console.error("Error deleting brother:", error);
+    return { success: false, message: "Failed to delete brother." };
+  }
+}
+
+// ============= ADMIN: DELETE RECRUIT =============
+export async function deleteRecruit(
+  recruitId: string,
+  adminId: string
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const adminResult = await sql`
+      SELECT is_admin FROM brothers WHERE id = ${adminId}
+    `;
+    
+    if (!adminResult.rows[0]?.is_admin) {
+      return { success: false, message: "Unauthorized: Admin access required." };
+    }
+
+    const targetRecruit = await sql`
+      SELECT image_url FROM recruits WHERE id = ${recruitId}
+    `;
+    
+    if (!targetRecruit.rows[0]) {
+      return { success: false, message: "Recruit not found." };
+    }
+
+    await sql`
+      DELETE FROM recruit_comments WHERE recruit_id = ${recruitId}
+    `;
+
+    await sql`
+      DELETE FROM recruits WHERE id = ${recruitId}
+    `;
+
+    const imageUrl = targetRecruit.rows[0].image_url;
+    if (imageUrl) {
+      try {
+        const { del } = await import("@vercel/blob");
+        await del(imageUrl);
+      } catch (blobError) {
+        console.error("Failed to delete blob:", blobError);
+      }
+    }
+
+    console.log(`[AUDIT] Recruit ${recruitId} deleted by admin ${adminId} at ${new Date().toISOString()}`);
+
+    revalidatePath("/_recruits");
+    revalidatePath("/admin");
+    revalidatePath(`/_recruits/${recruitId}/details`);
+
+    return { success: true, message: "Recruit deleted successfully." };
+  } catch (error) {
+    console.error("Error deleting recruit:", error);
+    return { success: false, message: "Failed to delete recruit." };
+  }
+}

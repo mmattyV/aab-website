@@ -7,15 +7,20 @@ export const authConfig = {
   callbacks: {
     authorized({ auth, request: { nextUrl } }) {
       const isLoggedIn = !!auth?.user;
+      const isAdmin = !!auth?.user?.isAdmin;
       const isOnRecruits = nextUrl.pathname.startsWith('/recruits');
+      const isOnAdmin = nextUrl.pathname.startsWith('/admin');
 
-      // Allow logged-in users to access all pages freely
+      if (isOnAdmin) {
+        if (!isLoggedIn) return false;
+        if (!isAdmin) return false;
+        return true;
+      }
+
       if (isLoggedIn) return true;
 
-      // If on /recruits and not logged in, redirect to login
       if (isOnRecruits) return false;
 
-      // Otherwise, allow access
       return true;
     },
   },

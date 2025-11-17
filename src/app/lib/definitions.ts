@@ -17,6 +17,7 @@ export type Brother = {
   bio: string;
   instagram: string;
   image_url: string;
+  is_admin: boolean;
 };
 
 export type BrotherOverviewField = {
@@ -186,5 +187,6 @@ export interface BrotherUser {
   id: string;
   personal_email: string;
   password: string;
+  is_admin: boolean;
   // any other fields from your DB
 }
