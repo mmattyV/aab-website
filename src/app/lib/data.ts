@@ -162,14 +162,40 @@ export async function fetchUserCommentForRecruit(recruitId: string, userId: stri
 export async function checkIsAdmin(userId: string): Promise<boolean> {
   try {
     const result = await sql`
-      SELECT is_admin 
+      SELECT is_admin, personal_email 
       FROM brothers 
       WHERE id = ${userId}
       LIMIT 1
     `;
-    return result.rows[0]?.is_admin || false;
+    
+    const row = result.rows[0];
+    if (!row) return false;
+    
+    if (row.is_admin !== undefined && row.is_admin !== null) {
+      return row.is_admin;
+    }
+    
+    const adminEmails = process.env.ADMIN_EMAILS?.split(",").map(e => e.trim().toLowerCase()) || [];
+    return adminEmails.includes(row.personal_email?.toLowerCase());
   } catch (error) {
     console.error("Error checking admin status:", error);
+    
+    try {
+      const emailResult = await sql`
+        SELECT personal_email 
+        FROM brothers 
+        WHERE id = ${userId}
+        LIMIT 1
+      `;
+      const email = emailResult.rows[0]?.personal_email;
+      if (email) {
+        const adminEmails = process.env.ADMIN_EMAILS?.split(",").map(e => e.trim().toLowerCase()) || [];
+        return adminEmails.includes(email.toLowerCase());
+      }
+    } catch (fallbackError) {
+      console.error("Fallback admin check also failed:", fallbackError);
+    }
+    
     return false;
   }
 }

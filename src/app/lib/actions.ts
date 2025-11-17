@@ -500,15 +500,18 @@ export async function deleteBrother(
   formData: FormData
 ) {
   const brotherId = formData.get("brotherId")?.toString();
-  const adminId = formData.get("adminId")?.toString();
 
-  if (!brotherId || !adminId) {
+  if (!brotherId) {
     return { message: "Missing required fields." };
   }
 
-  // Check if the user is an admin
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { message: "Please log in." };
+  }
+
   const { checkIsAdmin } = await import("./data");
-  const isAdmin = await checkIsAdmin(adminId);
+  const isAdmin = await checkIsAdmin(session.user.id);
   
   if (!isAdmin) {
     return { message: "Unauthorized. Only admins can delete brothers." };
@@ -534,15 +537,18 @@ export async function deleteRecruit(
   formData: FormData
 ) {
   const recruitId = formData.get("recruitId")?.toString();
-  const adminId = formData.get("adminId")?.toString();
 
-  if (!recruitId || !adminId) {
+  if (!recruitId) {
     return { message: "Missing required fields." };
   }
 
-  // Check if the user is an admin
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { message: "Please log in." };
+  }
+
   const { checkIsAdmin } = await import("./data");
-  const isAdmin = await checkIsAdmin(adminId);
+  const isAdmin = await checkIsAdmin(session.user.id);
   
   if (!isAdmin) {
     return { message: "Unauthorized. Only admins can delete recruits." };

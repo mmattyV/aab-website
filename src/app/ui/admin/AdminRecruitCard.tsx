@@ -7,10 +7,9 @@ import { useState } from "react";
 
 interface AdminRecruitCardProps {
   recruit: RecruitOverviewField;
-  adminId: string;
 }
 
-export default function AdminRecruitCard({ recruit, adminId }: AdminRecruitCardProps) {
+export default function AdminRecruitCard({ recruit }: AdminRecruitCardProps) {
   const [state, formAction] = useActionState(deleteRecruit, { message: null });
   const [showConfirm, setShowConfirm] = useState(false);
 
@@ -54,7 +53,6 @@ export default function AdminRecruitCard({ recruit, adminId }: AdminRecruitCardP
           </p>
           <form action={formAction} className="flex gap-2">
             <input type="hidden" name="recruitId" value={recruit.id} />
-            <input type="hidden" name="adminId" value={adminId} />
             <button
               type="submit"
               className="flex-1 bg-red-600 text-white py-2 px-4 rounded hover:bg-red-700 transition-colors"

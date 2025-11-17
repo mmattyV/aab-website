@@ -2,11 +2,7 @@ import { fetchAllBrothers, fetchAllRecruits } from "@/app/lib/data";
 import AdminBrotherCard from "./AdminBrotherCard";
 import AdminRecruitCard from "./AdminRecruitCard";
 
-interface AdminDashboardProps {
-  adminId: string;
-}
-
-export default async function AdminDashboard({ adminId }: AdminDashboardProps) {
+export default async function AdminDashboard() {
   const brothers = await fetchAllBrothers();
   const recruits = await fetchAllRecruits();
 
@@ -19,7 +15,6 @@ export default async function AdminDashboard({ adminId }: AdminDashboardProps) {
             <AdminBrotherCard
               key={brother.id}
               brother={brother}
-              adminId={adminId}
             />
           ))}
         </div>
@@ -35,7 +30,6 @@ export default async function AdminDashboard({ adminId }: AdminDashboardProps) {
             <AdminRecruitCard
               key={recruit.id}
               recruit={recruit}
-              adminId={adminId}
             />
           ))}
         </div>

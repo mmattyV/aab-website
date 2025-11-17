@@ -35,7 +35,7 @@ export default async function Page() {
       </div>
       <div className="flex flex-col items-start px-14 pt-12 pb-40 mt-32 w-full bg-white max-md:px-5 max-md:pb-24 max-md:mt-10 max-md:max-w-full">
         <Suspense fallback={<div>Loading...</div>}>
-          <AdminDashboard adminId={session.user.id} />
+          <AdminDashboard />
         </Suspense>
       </div>
     </div>

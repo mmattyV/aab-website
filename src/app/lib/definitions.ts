@@ -17,7 +17,7 @@ export type Brother = {
   bio: string;
   instagram: string;
   image_url: string;
-  is_admin: boolean;
+  is_admin?: boolean;
 };
 
 export type BrotherOverviewField = {

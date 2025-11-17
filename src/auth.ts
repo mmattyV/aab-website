@@ -2,18 +2,16 @@ import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { z } from "zod";
 import bcrypt from "bcrypt";
-import postgres from "postgres";
+import { sql } from "@vercel/postgres";
 import { authConfig } from "./auth.config";
 import type { Session, User } from "next-auth";
 import type { JWT } from "next-auth/jwt";
 import { BrotherUser } from "./app/lib/definitions";
 
-const sql = postgres(process.env.POSTGRES_URL!, { ssl: "require" });
-
 async function getBrother(email: string) {
   try {
-    const brother = await sql`SELECT * FROM brothers WHERE personal_email=${email}`;
-    return brother[0];
+    const result = await sql`SELECT * FROM brothers WHERE personal_email=${email}`;
+    return result.rows[0];
   } catch (error) {
     console.error("Failed to fetch brother:", error);
     throw new Error("Failed to fetch brother.");

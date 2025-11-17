@@ -7,10 +7,9 @@ import { useState } from "react";
 
 interface AdminBrotherCardProps {
   brother: BrotherOverviewField;
-  adminId: string;
 }
 
-export default function AdminBrotherCard({ brother, adminId }: AdminBrotherCardProps) {
+export default function AdminBrotherCard({ brother }: AdminBrotherCardProps) {
   const [state, formAction] = useActionState(deleteBrother, { message: null });
   const [showConfirm, setShowConfirm] = useState(false);
 
@@ -55,7 +54,6 @@ export default function AdminBrotherCard({ brother, adminId }: AdminBrotherCardP
           </p>
           <form action={formAction} className="flex gap-2">
             <input type="hidden" name="brotherId" value={brother.id} />
-            <input type="hidden" name="adminId" value={adminId} />
             <button
               type="submit"
               className="flex-1 bg-red-600 text-white py-2 px-4 rounded hover:bg-red-700 transition-colors"
