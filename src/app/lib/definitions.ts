@@ -146,6 +146,7 @@ export interface BrotherCardProps {
   house: string;
   position: string;
   image_url: string;
+  priority?: boolean; // For prioritizing above-fold images
 }
 
 export interface RecruitCardProps {
@@ -154,6 +155,7 @@ export interface RecruitCardProps {
   last_name: string;
   room: string;
   image_url: string;
+  priority?: boolean; // For prioritizing above-fold images
 }
 
 export interface BrotherYearSectionProps {

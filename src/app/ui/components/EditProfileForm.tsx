@@ -27,6 +27,14 @@ export default function EditProfileForm({
     setImageError(null);
     const file = e.target.files?.[0];
     if (file) {
+      // Check file size (5MB limit)
+      const maxSize = 5 * 1024 * 1024; // 5MB in bytes
+      if (file.size > maxSize) {
+        setImageError("Image must be under 5MB");
+        e.target.value = ""; // Reset the input
+        return;
+      }
+
       const allowedExtensions = ["jpeg", "jpg", "png"];
       const allowedMimeTypes = ["image/jpeg", "image/png"];
 
@@ -38,6 +46,7 @@ export default function EditProfileForm({
       if (!isValidExtension || !isValidMimeType) {
         setImageError("Only JPEG, JPG, and PNG files are allowed.");
         e.target.value = ""; // Reset the input
+        return;
       }
       if (isValidExtension && isValidMimeType) {
         const reader = new FileReader();

@@ -17,7 +17,10 @@ export const BrotherYearSection: React.FC<BrotherYearSectionProps> = ({
       <div className="flex flex-wrap gap-11 justify-start pl-3 mt-3 w-full">
         {brothers.map((brother, index) => (
           <div key={index} className="flex-none basis-[230px]">
-            <BrotherCard {...brother} />
+            <BrotherCard 
+              {...brother} 
+              priority={index < 4} // Prioritize first 4 cards (typically above the fold)
+            />
           </div>
         ))}
       </div>

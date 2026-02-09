@@ -12,6 +12,7 @@ import {
 import { auth } from "@/auth"; // Correctly import auth from auth.ts
 import Link from "next/link";
 import { FaEdit, FaPlus } from "react-icons/fa";
+import { getImageUrl } from "@/app/utils/imageUrlHelper";
 
 export async function RecruitProfile({
   id = "",
@@ -24,6 +25,9 @@ export async function RecruitProfile({
   image_url = "https://via.placeholder.com/150",
   comments = [],
 }: RecruitProfileProps & { comments: RecruitCommentProps[] }) {
+  // Use full-size image for profile page
+  const fullImageUrl = getImageUrl(image_url, 'full');
+  
   // 1. Get the logged-in user
   const session = await auth();
   if (!session || !session.user?.email || !session.user?.id) {
@@ -88,10 +92,11 @@ export async function RecruitProfile({
       {/* Image + Button + Text */}
       <div className="relative flex flex-col md:flex-row items-start gap-4 mt-12 max-md:mt-10 max-md:max-w-full md:pr-52">
         <Image
-          src={image_url}
+          src={fullImageUrl}
           alt={`Profile of ${first_name} ${last_name}`}
           width={487}
           height={650}
+          priority
           className="object-contain w-full max-w-[487px] aspect-[0.75] min-w-[400px] max-md:mx-auto"
         />
 
