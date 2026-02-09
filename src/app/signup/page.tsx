@@ -34,7 +34,7 @@ export default function SignUpLandingPage() {
           </div>
 
           {/* Recruit Sign-Up Info */}
-          {/* <div className="flex flex-col justify-between bg-gray-900 p-8 rounded-md shadow-lg">
+          <div className="flex flex-col justify-between bg-gray-900 p-8 rounded-md shadow-lg">
             <div>
               <h3 className="text-3xl font-semibold mb-4">
                 Sign Up as Recruit
@@ -51,7 +51,7 @@ export default function SignUpLandingPage() {
             >
               Sign Up as Recruit
             </Link>
-          </div> */}
+          </div>
         </div>
       </div>
     </div>

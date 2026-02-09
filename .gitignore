@@ -43,3 +43,6 @@ next-env.d.ts
 /src/app/recover
 /src/app/delete
 /src/app/merge
+
+# database scripts
+/scripts
