@@ -66,13 +66,15 @@ export default function MenuButton({
           >
             Brothers
           </Link>
-          {/* <Link
-            href="/recruits"
-            className="text-lg hover:underline"
-            onClick={toggleMenu}
-          >
-            Recruits
-          </Link> */}
+          {isLoggedIn && (
+            <Link
+              href="/recruits"
+              className="text-lg hover:underline"
+              onClick={toggleMenu}
+            >
+              Recruits
+            </Link>
+          )}
           <Link
             href="/constitution"
             className="text-lg hover:underline"
