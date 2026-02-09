@@ -17,6 +17,8 @@ export type Brother = {
   bio: string;
   instagram: string;
   image_url: string;
+  reset_token?: string;
+  reset_token_expires?: Date;
 };
 
 export type BrotherOverviewField = {

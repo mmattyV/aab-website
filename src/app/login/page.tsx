@@ -4,6 +4,7 @@ import { useActionState } from "react";
 import { authenticate } from "@/app/lib/actions";
 import { useSearchParams } from "next/navigation";
 import { ExclamationCircleIcon } from "@heroicons/react/24/outline";
+import Link from "next/link";
 
 export default function LoginPage() {
   const searchParams = useSearchParams();
@@ -50,10 +51,19 @@ export default function LoginPage() {
               type="password"
               name="password"
               placeholder="********"
-              className="rounded-md border border-gray-300 p-2 mb-6 focus:outline-none focus:ring-2 focus:ring-brandRed"
+              className="rounded-md border border-gray-300 p-2 mb-2 focus:outline-none focus:ring-2 focus:ring-brandRed"
               required
               minLength={6}
             />
+
+            <div className="mb-6 text-right">
+              <Link
+                href="/forgot-password"
+                className="text-sm text-gray-600 hover:text-brandRed transition-colors"
+              >
+                Forgot password?
+              </Link>
+            </div>
 
             <input type="hidden" name="redirectTo" value={callbackUrl} />
             <button

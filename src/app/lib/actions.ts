@@ -493,3 +493,145 @@ export async function updateBrotherProfile(
   revalidatePath("/brothers");
   redirect("/brothers");
 }
+
+// ============= PASSWORD RESET ACTIONS =============
+
+export async function requestPasswordReset(
+  prevState: State,
+  formData: FormData
+) {
+  const email = formData.get("email")?.toString() || "";
+
+  // Validate email format
+  const emailSchema = z.string().email();
+  const validatedEmail = emailSchema.safeParse(email);
+
+  if (!validatedEmail.success) {
+    return {
+      message: "Please enter a valid email address.",
+    };
+  }
+
+  try {
+    // Check if user exists
+    const brother = await sql`
+      SELECT id, personal_email, first_name
+      FROM brothers
+      WHERE personal_email = ${email}
+      LIMIT 1;
+    `;
+
+    // Always show success message for security (don't reveal if email exists)
+    if (brother.rows.length === 0) {
+      return {
+        message:
+          "If an account exists with this email, you will receive a password reset link.",
+      };
+    }
+
+    // Generate secure random token
+    const crypto = await import("crypto");
+    const resetToken = crypto.randomBytes(32).toString("hex");
+
+    // Set expiration time (1 hour from now)
+    const expiresAt = new Date();
+    expiresAt.setHours(expiresAt.getHours() + 1);
+
+    // Store token in database
+    await sql`
+      UPDATE brothers
+      SET reset_token = ${resetToken},
+          reset_token_expires = ${expiresAt.toISOString()}
+      WHERE personal_email = ${email}
+    `;
+
+    // Send email
+    const { sendPasswordResetEmail } = await import("@/app/lib/email");
+    const emailResult = await sendPasswordResetEmail(email, resetToken);
+
+    if (!emailResult.success) {
+      console.error("Failed to send reset email:", emailResult.error);
+      // Don't expose email sending failure to user for security
+    }
+
+    return {
+      message:
+        "If an account exists with this email, you will receive a password reset link.",
+    };
+  } catch (error) {
+    console.error("Password reset request error:", error);
+    return {
+      message:
+        "If an account exists with this email, you will receive a password reset link.",
+    };
+  }
+}
+
+export async function verifyResetToken(token: string) {
+  try {
+    const { fetchBrotherByResetToken } = await import("@/app/lib/data");
+    const brother = await fetchBrotherByResetToken(token);
+
+    if (!brother) {
+      return { valid: false };
+    }
+
+    return { valid: true };
+  } catch (error) {
+    console.error("Error verifying reset token:", error);
+    return { valid: false };
+  }
+}
+
+export async function resetPassword(prevState: State, formData: FormData) {
+  const token = formData.get("token")?.toString() || "";
+  const password = formData.get("password")?.toString() || "";
+  const confirmPassword = formData.get("confirmPassword")?.toString() || "";
+
+  // Validate inputs
+  if (!token) {
+    return { message: "Invalid or missing reset token." };
+  }
+
+  if (!password || password.length < 6) {
+    return { message: "Password must be at least 6 characters long." };
+  }
+
+  if (password !== confirmPassword) {
+    return { message: "Passwords do not match." };
+  }
+
+  try {
+    // Verify token and get brother
+    const { fetchBrotherByResetToken } = await import("@/app/lib/data");
+    const brother = await fetchBrotherByResetToken(token);
+
+    if (!brother) {
+      return {
+        message: "Invalid or expired reset token. Please request a new one.",
+      };
+    }
+
+    // Hash new password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Update password and clear reset token
+    await sql`
+      UPDATE brothers
+      SET password = ${hashedPassword},
+          reset_token = NULL,
+          reset_token_expires = NULL
+      WHERE id = ${brother.id}
+    `;
+
+    return {
+      message: "Password reset successful! You can now log in with your new password.",
+      success: true,
+    };
+  } catch (error) {
+    console.error("Password reset error:", error);
+    return {
+      message: "Failed to reset password. Please try again.",
+    };
+  }
+}

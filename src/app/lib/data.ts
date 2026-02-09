@@ -158,3 +158,30 @@ export async function fetchUserCommentForRecruit(recruitId: string, userId: stri
     return null;
   }
 }
+
+export async function fetchBrotherByResetToken(token: string) {
+  try {
+    const brother = await sql`
+      SELECT id, personal_email, reset_token_expires
+      FROM brothers
+      WHERE reset_token = ${token}
+      LIMIT 1;
+    `;
+
+    if (brother.rows.length === 0) {
+      return null;
+    }
+
+    const result = brother.rows[0];
+    
+    // Check if token has expired
+    if (result.reset_token_expires && new Date(result.reset_token_expires) < new Date()) {
+      return null; // Token has expired
+    }
+
+    return result;
+  } catch (error) {
+    console.error("❌ Error fetching brother by reset token:", error);
+    return null;
+  }
+}
