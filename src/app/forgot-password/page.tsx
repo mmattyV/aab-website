@@ -31,7 +31,7 @@ export default function ForgotPasswordPage() {
             className="flex flex-col w-full bg-white text-black rounded-md p-10 max-md:p-6 shadow-lg"
           >
             <p className="mb-6 text-gray-700 text-sm">
-              Enter your email address and we'll send you a link to reset your
+              Enter your email address and we&apos;ll send you a link to reset your
               password.
             </p>
 
