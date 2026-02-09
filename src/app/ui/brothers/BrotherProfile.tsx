@@ -3,6 +3,7 @@ import BackToButton from "@/app/ui/components/BackToButton";
 import Image from "next/image";
 import { ContactSection } from "@/app/ui/components/ContactSection";
 import { BrotherProfileProps, ContactInfo } from "@/app/lib/definitions";
+import { getImageUrl } from "@/app/utils/imageUrlHelper";
 
 function formatDate(date: string | Date | null | undefined) {
   if (!date) return "Not provided";
@@ -32,6 +33,9 @@ export function BrotherProfile({
   image_url = "https://via.placeholder.com/150",
   isLoggedIn = false,
 }: BrotherProfileComponentProps) {
+  // Use full-size image for profile page
+  const fullImageUrl = getImageUrl(image_url, 'full');
+  
   // Build the contacts array
   // Always show personal & school emails
   // Only show phone & instagram if user is logged in
@@ -87,10 +91,11 @@ export function BrotherProfile({
         "
       >
         <Image
-          src={image_url}
+          src={fullImageUrl}
           alt={`Profile of ${first_name} ${last_name}`}
           width={487}
           height={650}
+          priority
           className="
             object-contain
             w-full
