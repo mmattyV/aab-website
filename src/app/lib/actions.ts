@@ -496,10 +496,19 @@ export async function updateBrotherProfile(
 
 // ============= PASSWORD RESET ACTIONS =============
 
+export type PasswordResetState = {
+  message: string;
+};
+
+export type ResetPasswordState = {
+  message: string;
+  success?: boolean;
+};
+
 export async function requestPasswordReset(
-  prevState: State,
+  prevState: PasswordResetState | undefined,
   formData: FormData
-) {
+): Promise<PasswordResetState> {
   const email = formData.get("email")?.toString() || "";
 
   // Validate email format
@@ -583,7 +592,10 @@ export async function verifyResetToken(token: string) {
   }
 }
 
-export async function resetPassword(prevState: State, formData: FormData) {
+export async function resetPassword(
+  prevState: ResetPasswordState | undefined,
+  formData: FormData
+): Promise<ResetPasswordState> {
   const token = formData.get("token")?.toString() || "";
   const password = formData.get("password")?.toString() || "";
   const confirmPassword = formData.get("confirmPassword")?.toString() || "";
