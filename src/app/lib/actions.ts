@@ -12,7 +12,8 @@ import { BrotherSchema, RecruitSchema, EditBrotherSchema } from "./zod-schemas";
 import bcrypt from "bcrypt";
 import { validateImageFile } from "@/app/utils/validateImage";
 import { sanitizeFilename } from "@/app/utils/sanitizeFilename";
-import { compressImage } from "@/app/utils/compressImage";
+import { generateImageVariants } from "@/app/utils/compressImage";
+import { serializeImageUrls } from "@/app/utils/imageUrlHelper";
 
 // ============= AUTH / SIGNIN / SIGNOUT =================
 export async function authenticate(
@@ -244,15 +245,34 @@ export async function createBrotherAccount(
   // 4) Hash password
   const hashedPassword = await bcrypt.hash(parsed.data.password, 10);
 
-  // 5) Compress and upload image to Vercel Blob
+  // 5) Generate image variants and upload to Vercel Blob
   try {
-    // Compress the image
-    const { buffer: fileBuffer, contentType } = await compressImage(imageFile);
+    // Generate thumbnail, medium, and full size images
+    const variants = await generateImageVariants(imageFile);
     const sanitizedFilename = sanitizeFilename(imageFile.name);
-    const fileName = `brother-profile-${randomUUID()}-${sanitizedFilename}`;
-    const { url } = await put(fileName, fileBuffer, {
-      access: "public",
-      contentType: contentType,
+    const baseFileName = `brother-profile-${randomUUID()}-${sanitizedFilename}`;
+    
+    // Upload all three sizes in parallel
+    const [thumbResult, mediumResult, fullResult] = await Promise.all([
+      put(`${baseFileName}-thumb.jpg`, variants.thumbnail, {
+        access: "public",
+        contentType: "image/jpeg",
+      }),
+      put(`${baseFileName}-medium.jpg`, variants.medium, {
+        access: "public",
+        contentType: "image/jpeg",
+      }),
+      put(`${baseFileName}-full.jpg`, variants.full, {
+        access: "public",
+        contentType: "image/jpeg",
+      }),
+    ]);
+    
+    // Store all URLs as JSON string
+    const url = serializeImageUrls({
+      thumbnail: thumbResult.url,
+      medium: mediumResult.url,
+      full: fullResult.url,
     });
 
     // 6) Insert into DB
@@ -340,13 +360,32 @@ export async function createRecruitAccount(
   }
 
   try {
-    // Compress and upload image
-    const { buffer: fileBuffer, contentType } = await compressImage(imageFile);
+    // Generate image variants and upload
+    const variants = await generateImageVariants(imageFile);
     const sanitizedFilename = sanitizeFilename(imageFile.name);
-    const fileName = `brother-profile-${randomUUID()}-${sanitizedFilename}`;
-    const { url } = await put(fileName, fileBuffer, {
-      access: "public",
-      contentType: contentType,
+    const baseFileName = `recruit-profile-${randomUUID()}-${sanitizedFilename}`;
+    
+    // Upload all three sizes in parallel
+    const [thumbResult, mediumResult, fullResult] = await Promise.all([
+      put(`${baseFileName}-thumb.jpg`, variants.thumbnail, {
+        access: "public",
+        contentType: "image/jpeg",
+      }),
+      put(`${baseFileName}-medium.jpg`, variants.medium, {
+        access: "public",
+        contentType: "image/jpeg",
+      }),
+      put(`${baseFileName}-full.jpg`, variants.full, {
+        access: "public",
+        contentType: "image/jpeg",
+      }),
+    ]);
+    
+    // Store all URLs as JSON string
+    const url = serializeImageUrls({
+      thumbnail: thumbResult.url,
+      medium: mediumResult.url,
+      full: fullResult.url,
     });
 
     // Insert recruit
@@ -441,38 +480,73 @@ export async function updateBrotherProfile(
   const imageFile = parsed.data.image;
 
   if (imageFile) {
-    // ✅ Fetch old image URL before uploading new one
-    let oldImageUrl: string | null = null;
+    // ✅ Fetch old image URL(s) before uploading new one
+    let oldImageUrls: string[] = [];
     try {
       const existingBrother =
         await sql`SELECT image_url FROM brothers WHERE id = ${parsed.data.brotherId}`;
       if (existingBrother.rows.length > 0) {
-        oldImageUrl = existingBrother.rows[0].image_url;
+        const oldImageUrl = existingBrother.rows[0].image_url;
+        // Parse old URLs to delete all variants
+        try {
+          const parsed = JSON.parse(oldImageUrl);
+          if (parsed.thumbnail && parsed.medium && parsed.full) {
+            oldImageUrls = [parsed.thumbnail, parsed.medium, parsed.full];
+          } else {
+            oldImageUrls = [oldImageUrl]; // Legacy single URL
+          }
+        } catch {
+          oldImageUrls = [oldImageUrl]; // Legacy single URL
+        }
       }
     } catch (error) {
       console.error("Error fetching existing image:", error);
     }
 
-    // ✅ Compress and upload new image
+    // ✅ Generate image variants and upload new images
     try {
-      const { buffer: fileBuffer, contentType } = await compressImage(imageFile);
+      const variants = await generateImageVariants(imageFile);
       const sanitizedFilename = sanitizeFilename(imageFile.name);
-      const fileName = `brother-profile-${randomUUID()}-${sanitizedFilename}`;
-      const { url } = await put(fileName, fileBuffer, {
-        access: "public",
-        contentType: contentType,
+      const baseFileName = `brother-profile-${randomUUID()}-${sanitizedFilename}`;
+      
+      // Upload all three sizes in parallel
+      const [thumbResult, mediumResult, fullResult] = await Promise.all([
+        put(`${baseFileName}-thumb.jpg`, variants.thumbnail, {
+          access: "public",
+          contentType: "image/jpeg",
+        }),
+        put(`${baseFileName}-medium.jpg`, variants.medium, {
+          access: "public",
+          contentType: "image/jpeg",
+        }),
+        put(`${baseFileName}-full.jpg`, variants.full, {
+          access: "public",
+          contentType: "image/jpeg",
+        }),
+      ]);
+      
+      // Store all URLs as JSON string
+      newImageUrl = serializeImageUrls({
+        thumbnail: thumbResult.url,
+        medium: mediumResult.url,
+        full: fullResult.url,
       });
-      newImageUrl = url;
 
-      // ✅ Delete old image from blob storage (non-blocking)
-      if (oldImageUrl) {
-        try {
-          await del(oldImageUrl);
-          console.log(`Successfully deleted old image: ${oldImageUrl}`);
-        } catch (error) {
-          console.error("Failed to delete old image:", error);
-          // Don't fail the update if deletion fails
-        }
+      // ✅ Delete all old image variants from blob storage (non-blocking)
+      if (oldImageUrls.length > 0) {
+        // Delete old images in parallel but don't wait for completion
+        Promise.all(
+          oldImageUrls.map(async (url) => {
+            try {
+              await del(url);
+              console.log(`Successfully deleted old image: ${url}`);
+            } catch (error) {
+              console.error(`Failed to delete old image: ${url}`, error);
+            }
+          })
+        ).catch((error) => {
+          console.error("Error during batch deletion:", error);
+        });
       }
     } catch (error) {
       console.error("Image Upload Error:", error);
