@@ -130,10 +130,12 @@ export async function fetchAllComments() {
 
 export async function fetchBrotherByEmail(email: string) {
   try {
+    // Normalize email to lowercase for case-insensitive comparison
+    const normalizedEmail = email.toLowerCase().trim();
     const brother = await sql`
       SELECT id, first_name, last_name, personal_email
       FROM brothers
-      WHERE personal_email = ${email}
+      WHERE personal_email = ${normalizedEmail}
       LIMIT 1;
     `;
 

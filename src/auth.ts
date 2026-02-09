@@ -12,7 +12,9 @@ const sql = postgres(process.env.POSTGRES_URL!, { ssl: "require" });
 
 async function getBrother(email: string) {
   try {
-    const brother = await sql`SELECT * FROM brothers WHERE personal_email=${email}`;
+    // Normalize email to lowercase for case-insensitive comparison
+    const normalizedEmail = email.toLowerCase().trim();
+    const brother = await sql`SELECT * FROM brothers WHERE personal_email=${normalizedEmail}`;
     return brother[0];
   } catch (error) {
     console.error("Failed to fetch brother:", error);

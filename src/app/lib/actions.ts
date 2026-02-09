@@ -193,10 +193,10 @@ export async function createBrotherAccount(
   prevState: State,
   formData: FormData
 ) {
-  // 1) Extract fields
+  // 1) Extract fields and normalize emails to lowercase
   const rawFields = {
-    personal_email: formData.get("personal_email")?.toString() || "",
-    school_email: formData.get("school_email")?.toString() || "",
+    personal_email: formData.get("personal_email")?.toString().toLowerCase().trim() || "",
+    school_email: formData.get("school_email")?.toString().toLowerCase().trim() || "",
     password: formData.get("password")?.toString() || "",
     first_name: formData.get("first_name")?.toString() || "",
     last_name: formData.get("last_name")?.toString() || "",
@@ -311,7 +311,7 @@ export async function createRecruitAccount(
   formData: FormData
 ) {
   const rawFields = {
-    email: formData.get("email")?.toString() || "",
+    email: formData.get("email")?.toString().toLowerCase().trim() || "",
     first_name: formData.get("first_name")?.toString() || "",
     last_name: formData.get("last_name")?.toString() || "",
     year: formData.get("year")?.toString() || "",
@@ -393,13 +393,13 @@ export async function updateBrotherProfile(
   prevState: State,
   formData: FormData
 ) {
-  // ✅ Extract form data, ensuring `null` is handled for image
+  // ✅ Extract form data, ensuring `null` is handled for image and emails are normalized
   const rawFields = {
     brotherId: formData.get("brotherId")?.toString() || "",
     first_name: formData.get("first_name")?.toString() || "",
     last_name: formData.get("last_name")?.toString() || "",
-    personal_email: formData.get("personal_email")?.toString() || "",
-    school_email: formData.get("school_email")?.toString() || "",
+    personal_email: formData.get("personal_email")?.toString().toLowerCase().trim() || "",
+    school_email: formData.get("school_email")?.toString().toLowerCase().trim() || "",
     year: formData.get("year")?.toString() || "",
     phone: formData.get("phone")?.toString() || "",
     house: formData.get("house")?.toString() || "",
@@ -521,12 +521,15 @@ export async function requestPasswordReset(
     };
   }
 
+  // Normalize email to lowercase for case-insensitive comparison
+  const normalizedEmail = email.toLowerCase().trim();
+
   try {
     // Check if user exists
     const brother = await sql`
       SELECT id, personal_email, first_name
       FROM brothers
-      WHERE personal_email = ${email}
+      WHERE personal_email = ${normalizedEmail}
       LIMIT 1;
     `;
 
@@ -551,12 +554,12 @@ export async function requestPasswordReset(
       UPDATE brothers
       SET reset_token = ${resetToken},
           reset_token_expires = ${expiresAt.toISOString()}
-      WHERE personal_email = ${email}
+      WHERE personal_email = ${normalizedEmail}
     `;
 
-    // Send email
+    // Send email (use the original email from the database for proper casing in the email)
     const { sendPasswordResetEmail } = await import("@/app/lib/email");
-    const emailResult = await sendPasswordResetEmail(email, resetToken);
+    const emailResult = await sendPasswordResetEmail(brother.rows[0].personal_email, resetToken);
 
     if (!emailResult.success) {
       console.error("Failed to send reset email:", emailResult.error);
