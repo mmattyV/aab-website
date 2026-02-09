@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "cleanup-images": "tsx scripts/cleanup-unused-images.ts",
+    "cleanup-images:execute": "tsx scripts/cleanup-unused-images.ts --execute"
   },
   "dependencies": {
     "@heroicons/react": "^2.2.0",

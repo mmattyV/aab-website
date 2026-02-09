@@ -7,11 +7,12 @@ import { sql } from "@vercel/postgres";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { randomUUID } from "crypto";
-import { put } from "@vercel/blob";
+import { put, del } from "@vercel/blob";
 import { BrotherSchema, RecruitSchema, EditBrotherSchema } from "./zod-schemas";
 import bcrypt from "bcrypt";
 import { validateImageFile } from "@/app/utils/validateImage";
 import { sanitizeFilename } from "@/app/utils/sanitizeFilename";
+import { compressImage } from "@/app/utils/compressImage";
 
 // ============= AUTH / SIGNIN / SIGNOUT =================
 export async function authenticate(
@@ -243,14 +244,15 @@ export async function createBrotherAccount(
   // 4) Hash password
   const hashedPassword = await bcrypt.hash(parsed.data.password, 10);
 
-  // 5) Upload image to Vercel Blob
+  // 5) Compress and upload image to Vercel Blob
   try {
-    const fileBuffer = Buffer.from(await imageFile.arrayBuffer());
+    // Compress the image
+    const { buffer: fileBuffer, contentType } = await compressImage(imageFile);
     const sanitizedFilename = sanitizeFilename(imageFile.name);
     const fileName = `brother-profile-${randomUUID()}-${sanitizedFilename}`;
     const { url } = await put(fileName, fileBuffer, {
       access: "public",
-      contentType: imageFile.type,
+      contentType: contentType,
     });
 
     // 6) Insert into DB
@@ -338,13 +340,13 @@ export async function createRecruitAccount(
   }
 
   try {
-    // Upload image directly without conversion
-    const fileBuffer = Buffer.from(await imageFile.arrayBuffer());
+    // Compress and upload image
+    const { buffer: fileBuffer, contentType } = await compressImage(imageFile);
     const sanitizedFilename = sanitizeFilename(imageFile.name);
     const fileName = `brother-profile-${randomUUID()}-${sanitizedFilename}`;
     const { url } = await put(fileName, fileBuffer, {
       access: "public",
-      contentType: imageFile.type,
+      contentType: contentType,
     });
 
     // Insert recruit
@@ -439,16 +441,39 @@ export async function updateBrotherProfile(
   const imageFile = parsed.data.image;
 
   if (imageFile) {
-    // ✅ Upload new image
+    // ✅ Fetch old image URL before uploading new one
+    let oldImageUrl: string | null = null;
     try {
-      const fileBuffer = Buffer.from(await imageFile.arrayBuffer());
+      const existingBrother =
+        await sql`SELECT image_url FROM brothers WHERE id = ${parsed.data.brotherId}`;
+      if (existingBrother.rows.length > 0) {
+        oldImageUrl = existingBrother.rows[0].image_url;
+      }
+    } catch (error) {
+      console.error("Error fetching existing image:", error);
+    }
+
+    // ✅ Compress and upload new image
+    try {
+      const { buffer: fileBuffer, contentType } = await compressImage(imageFile);
       const sanitizedFilename = sanitizeFilename(imageFile.name);
       const fileName = `brother-profile-${randomUUID()}-${sanitizedFilename}`;
       const { url } = await put(fileName, fileBuffer, {
         access: "public",
-        contentType: imageFile.type,
+        contentType: contentType,
       });
       newImageUrl = url;
+
+      // ✅ Delete old image from blob storage (non-blocking)
+      if (oldImageUrl) {
+        try {
+          await del(oldImageUrl);
+          console.log(`Successfully deleted old image: ${oldImageUrl}`);
+        } catch (error) {
+          console.error("Failed to delete old image:", error);
+          // Don't fail the update if deletion fails
+        }
+      }
     } catch (error) {
       console.error("Image Upload Error:", error);
       return { message: "Failed to upload new photo." };
