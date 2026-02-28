@@ -1,5 +1,5 @@
 import "@/app/ui/globals.css";
-import { questrial } from "@/app/ui/fonts";
+import { spectral } from "@/app/ui/fonts";
 import { Header } from "@/app/ui/components/Header";
 import { Footer } from "@/app/ui/components/Footer";
 import { Suspense } from "react";
@@ -27,7 +27,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${questrial.className} antialiased bg-black text-white`}
+        className={`${spectral.className} antialiased bg-black text-white`}
       >
         {/* Header */}
         <Header />
