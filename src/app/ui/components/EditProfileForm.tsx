@@ -6,6 +6,7 @@ import { BrotherProfileProps } from "@/app/lib/definitions";
 import { ExclamationCircleIcon } from "@heroicons/react/24/outline";
 import { useState } from "react";
 import Image from "next/image";
+import { BROTHER_POSITIONS } from "@/app/lib/positions";
 
 export default function EditProfileForm({
   brother,
@@ -60,16 +61,7 @@ export default function EditProfileForm({
 
   // Constants for dropdown lists
   const validYears = ["2028", "2027", "2026", "2025"];
-  const positions = [
-    "New Brother",
-    "Archives",
-    "Brotherhood Chair",
-    "Recruitment Chair",
-    "Activism Chair",
-    "Service Chair",
-    "Finance Chair",
-    "Alumni Chair",
-  ];
+  const positions = BROTHER_POSITIONS;
 
   return (
     <form

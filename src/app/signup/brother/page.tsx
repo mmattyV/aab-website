@@ -5,6 +5,7 @@ import { createBrotherAccount, State } from "@/app/lib/actions";
 import { ExclamationCircleIcon } from "@heroicons/react/24/outline";
 import { useState } from "react";
 import Image from "next/image";
+import { BROTHER_POSITIONS } from "@/app/lib/positions";
 
 export default function BrotherSignUpPage() {
   const initialState: State = { message: null, errors: {} };
@@ -263,16 +264,7 @@ export default function BrotherSignUpPage() {
               className="rounded-md border border-gray-300 p-2 mb-4 focus:outline-none focus:ring-2 focus:ring-brandRed"
               required
             >
-              {[
-                "New Brother",
-                "Archives",
-                "Brotherhood Chair",
-                "Recruitment Chair",
-                "Activism Chair",
-                "Service Chair",
-                "Finance Chair",
-                "Alumni Chair",
-              ].map((pos) => (
+              {BROTHER_POSITIONS.map((pos) => (
                 <option key={pos} value={pos}>
                   {pos}
                 </option>

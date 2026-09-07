@@ -3,6 +3,7 @@ import { BrotherCardProps } from "@/app/lib/definitions";
 import Link from "next/link";
 import Image from "next/image";
 import { getImageUrl } from "@/app/utils/imageUrlHelper";
+import { isPublicPosition } from "@/app/lib/positions";
 
 export const BrotherCard: React.FC<BrotherCardProps> = ({
   first_name,
@@ -44,7 +45,7 @@ export const BrotherCard: React.FC<BrotherCardProps> = ({
             {first_name + " " + last_name}
           </div>
           <div className="text-sm text-shadow-sm leading-loose">
-            {house + (position !== "New Brother" ? ` | ${position}` : ``)}
+            {house + (isPublicPosition(position) ? ` | ${position}` : ``)}
           </div>
         </div>
       </div>

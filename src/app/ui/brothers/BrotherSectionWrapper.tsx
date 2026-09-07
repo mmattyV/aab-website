@@ -1,5 +1,6 @@
 import { fetchAllBrothers } from "@/app/lib/data";
 import { BrotherYearSection } from "@/app/ui/brothers/BrotherYearSection";
+import { isPublicPosition } from "@/app/lib/positions";
 
 export default async function BrotherSectionWrapper({
   activeTab,
@@ -12,7 +13,7 @@ export default async function BrotherSectionWrapper({
   const filteredBrothers =
     activeTab === "BOARD"
       ? allBrothers.filter(
-          (brother) => brother.position && brother.position !== "New Brother"
+          (brother) => isPublicPosition(brother.position)
         )
       : allBrothers;
 

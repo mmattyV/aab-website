@@ -4,6 +4,7 @@ import Image from "next/image";
 import { ContactSection } from "@/app/ui/components/ContactSection";
 import { BrotherProfileProps, ContactInfo } from "@/app/lib/definitions";
 import { getImageUrl } from "@/app/utils/imageUrlHelper";
+import { getPublicPositionLabel } from "@/app/lib/positions";
 
 function formatDate(date: string | Date | null | undefined) {
   if (!date) return "Not provided";
@@ -68,7 +69,7 @@ export function BrotherProfile({
       {/* Header Info */}
       <div className="flex flex-col text-left w-full pl-16 max-sm:center max-md:pl-8">
         <div className="text-2xl pl-4">
-          {year} | {house} | {position === "New Brother" ? "Brother" : position}
+          {year} | {house} | {getPublicPositionLabel(position)}
         </div>
         <div className="mt-6 text-8xl max-md:text-6xl pl-3">
           {first_name} {last_name}
