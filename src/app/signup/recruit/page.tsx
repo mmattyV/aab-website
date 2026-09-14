@@ -10,6 +10,7 @@ import {
   setInputFile,
   ImagePrepError,
 } from "@/app/utils/prepareImage";
+import { getValidGraduationYears } from "@/app/lib/graduation-years";
 
 export default function RecruitSignUpPage() {
   const initialState: State = { message: null, errors: {} };
@@ -120,7 +121,7 @@ export default function RecruitSignUpPage() {
               className="rounded-md border border-gray-300 p-2 mb-4 focus:outline-none focus:ring-2 focus:ring-brandRed"
               required
             >
-              {["2029","2028", "2027", "2026"].map((yearVal) => (
+              {getValidGraduationYears().map((yearVal) => (
                 <option key={yearVal} value={yearVal}>
                   {yearVal}
                 </option>

@@ -7,6 +7,7 @@ import { ExclamationCircleIcon } from "@heroicons/react/24/outline";
 import { useState } from "react";
 import Image from "next/image";
 import { BROTHER_POSITIONS } from "@/app/lib/positions";
+import { getGraduationYearOptions } from "@/app/lib/graduation-years";
 import { getImageUrl } from "@/app/utils/imageUrlHelper";
 import { toDateInputValue } from "@/app/utils/dateHelper";
 import {
@@ -120,11 +121,7 @@ export default function EditProfileForm({
   // year or a retired position still prefills instead of silently resetting
   // to whichever option happens to be first.
   const currentYear = brother.year ? String(brother.year) : "";
-  const validYears = ["2028", "2027", "2026", "2025"];
-  const years =
-    currentYear && !validYears.includes(currentYear)
-      ? [...validYears, currentYear]
-      : validYears;
+  const years = getGraduationYearOptions(currentYear);
   const positions: string[] = BROTHER_POSITIONS.includes(
     brother.position as (typeof BROTHER_POSITIONS)[number]
   )
