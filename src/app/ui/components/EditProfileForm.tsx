@@ -13,9 +13,17 @@ import { toDateInputValue } from "@/app/utils/dateHelper";
 export default function EditProfileForm({
   brother,
   id,
+  heading = "Edit Brother Profile",
+  canEditPosition = false,
+  returnTo = "profile",
 }: {
   brother: BrotherProfileProps;
   id: string;
+  heading?: string;
+  /** Positions are a board privilege; everyone else sees theirs read-only. */
+  canEditPosition?: boolean;
+  /** Where a successful save lands: the dashboard, or the brothers page. */
+  returnTo?: "profile" | "dashboard";
 }) {
   const initialState: State = { message: null, errors: {} };
   const [state, formAction] = useActionState(
@@ -142,10 +150,11 @@ export default function EditProfileForm({
       onChange={recomputeDirty}
       className="flex flex-col w-full bg-white text-black rounded-md p-10 max-md:p-6 shadow-lg relative"
     >
-      <h2 className="text-4xl font-bold mb-4">Edit Brother Profile</h2>
+      <h2 className="text-4xl font-bold mb-4 max-md:text-3xl">{heading}</h2>
 
       {/* Hidden ID field */}
       <input type="hidden" name="brotherId" value={id} />
+      <input type="hidden" name="returnTo" value={returnTo} />
 
       {/* First Name */}
       <label htmlFor="first_name" className="mb-2 font-semibold text-lg">
@@ -295,23 +304,42 @@ export default function EditProfileForm({
         required
       />
 
-      {/* Position */}
+      {/* Position — editable only by board members. Everyone else submits the
+          stored value through a hidden field, which the action re-checks. */}
       <label htmlFor="position" className="mb-2 font-semibold text-lg">
         Position
       </label>
-      <select
-        id="position"
-        name="position"
-        defaultValue={brother.position}
-        className="rounded-md border border-gray-300 p-2 mb-4 focus:outline-none focus:ring-2 focus:ring-brandRed"
-        required
-      >
-        {positions.map((p) => (
-          <option key={p} value={p}>
-            {p}
-          </option>
-        ))}
-      </select>
+      {canEditPosition ? (
+        <select
+          id="position"
+          name="position"
+          defaultValue={brother.position}
+          className="rounded-md border border-gray-300 p-2 mb-4 focus:outline-none focus:ring-2 focus:ring-brandRed"
+          required
+        >
+          {positions.map((p) => (
+            <option key={p} value={p}>
+              {p}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <>
+          <input type="hidden" name="position" value={brother.position ?? ""} />
+          <input
+            id="position"
+            type="text"
+            value={brother.position ?? ""}
+            readOnly
+            disabled
+            aria-describedby="position-help"
+            className="rounded-md border border-gray-300 bg-gray-100 text-gray-600 p-2 mb-1"
+          />
+          <p id="position-help" className="text-sm text-gray-500 mb-4">
+            Only board members can change a position.
+          </p>
+        </>
+      )}
 
       {/* Bio */}
       <label htmlFor="bio" className="mb-2 font-semibold text-lg">
@@ -343,7 +371,7 @@ export default function EditProfileForm({
       </label>
       {currentImageUrl && (
         <p className="text-sm text-gray-500 mb-2">
-          Leave this empty to keep your current picture.
+          Leave this empty to keep the current picture.
         </p>
       )}
       <input

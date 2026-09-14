@@ -51,6 +51,32 @@ export const RecruitSchema = z.object({
     }, "Invalid image file type."),
 });
 
+/**
+ * A replacement photo that may be left out entirely.
+ *
+ * An untouched file input still submits an empty `File`, so a zero-byte file
+ * counts as "no upload" rather than as an invalid one.
+ */
+const OptionalImageSchema = z
+  .union([z.instanceof(File), z.null(), z.undefined()])
+  .refine(
+    (file) => {
+      if (!file || !(file instanceof File) || file.size === 0) {
+        return true;
+      }
+
+      const allowedExtensions = ["jpeg", "jpg", "png"];
+      const extension = file.name.split(".").pop()?.toLowerCase();
+      if (!extension || !allowedExtensions.includes(extension)) {
+        return false;
+      }
+
+      const allowedMimeTypes = ["image/jpeg", "image/png"];
+      return allowedMimeTypes.includes(file.type);
+    },
+    { message: "Only JPEG, JPG, and PNG files are allowed." }
+  );
+
 export const EditBrotherSchema = z.object({
     brotherId: z.string().uuid(),
     first_name: z.string().min(1),
@@ -68,34 +94,18 @@ export const EditBrotherSchema = z.object({
     bio: z.string().min(1),
     instagram: z.string().optional(),
   
-    // ✅ Make `image` fully optional and skip validation if no file is provided
-    image: z
-      .union([z.instanceof(File), z.null(), z.undefined()]) // Allow null and undefined
-      .refine(
-        (file) => {
-          // Skip validation if no file is provided. An untouched file input
-          // still submits an empty File, which is not an upload either.
-          if (!file || !(file instanceof File) || file.size === 0) {
-            return true; // No file, so validation passes
-          }
-  
-          // Validate file extension
-          const allowedExtensions = ["jpeg", "jpg", "png"];
-          const extension = file.name.split(".").pop()?.toLowerCase();
-          if (!extension || !allowedExtensions.includes(extension)) {
-            return false; // Invalid extension
-          }
-  
-          // Validate MIME type
-          const allowedMimeTypes = ["image/jpeg", "image/png"];
-          if (!allowedMimeTypes.includes(file.type)) {
-            return false; // Invalid MIME type
-          }
-  
-          return true; // File is valid
-        },
-        {
-          message: "Only JPEG, JPG, and PNG files are allowed.", // Custom error message
-        }
-      ),
+    // ✅ Leaving the picker untouched keeps the current picture
+    image: OptionalImageSchema,
   });
+
+/** Every recruit field, with the photo optional so an edit can keep the current one. */
+export const EditRecruitSchema = z.object({
+  recruitId: z.string().uuid(),
+  first_name: z.string().min(1),
+  last_name: z.string().min(1),
+  email: z.string().email(),
+  year: z.string().regex(/^\d{4}$/),
+  phone: z.string().min(1),
+  room: z.string().min(1),
+  image: OptionalImageSchema,
+});

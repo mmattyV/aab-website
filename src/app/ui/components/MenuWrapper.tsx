@@ -1,10 +1,27 @@
-import { auth } from "@/auth"; // Correctly import auth from auth.ts
 import MenuButton from "./MenuButton";
 import { MenuWrapperProps } from "@/app/lib/definitions";
+import { getSessionBrother } from "@/app/lib/board-access";
+import { fetchRecruitsEnabled } from "@/app/lib/site-flags";
 
 export default async function MenuWrapper({ text, icon }: MenuWrapperProps) {
-  const session = await auth(); // ✅ Await the session
-  const isLoggedIn = !!session?.user; // ✅ Now session.user is accessible
+  // One lookup covers both questions the menu asks: whether anyone is signed
+  // in, and whether their position opens the dashboard.
+  const sessionBrother = await getSessionBrother();
 
-  return <MenuButton text={text} icon={icon} isLoggedIn={isLoggedIn} />;
+  // Mirrors getRecruitsAccess: the board always keeps the link, everyone else
+  // only while recruits are open. Signed-out visitors never see it, so the
+  // flag isn't worth a query for them.
+  const canSeeRecruits = sessionBrother
+    ? sessionBrother.isBoardMember || (await fetchRecruitsEnabled())
+    : false;
+
+  return (
+    <MenuButton
+      text={text}
+      icon={icon}
+      isLoggedIn={!!sessionBrother}
+      isBoardMember={!!sessionBrother?.isBoardMember}
+      canSeeRecruits={canSeeRecruits}
+    />
+  );
 }

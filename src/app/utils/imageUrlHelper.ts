@@ -57,3 +57,23 @@ export function getImageUrl(imageUrlField: string, size: 'thumbnail' | 'medium' 
   const urls = parseImageUrl(imageUrlField);
   return urls[size];
 }
+
+/**
+ * Every distinct blob URL stored in an `image_url` field.
+ *
+ * Use this before dropping a profile's picture — a legacy field holds one URL
+ * while a current one holds three, and both have to be cleaned up.
+ *
+ * @param imageUrlField - The image_url value from database
+ * @returns Unique URLs to delete, or an empty array when nothing is stored
+ */
+export function collectImageUrls(
+  imageUrlField: string | null | undefined
+): string[] {
+  if (!imageUrlField) return [];
+
+  const urls = parseImageUrl(imageUrlField);
+  return Array.from(
+    new Set([urls.thumbnail, urls.medium, urls.full])
+  ).filter(Boolean);
+}

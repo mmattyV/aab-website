@@ -11,6 +11,8 @@ export default function MenuButton({
   text,
   icon,
   isLoggedIn,
+  isBoardMember,
+  canSeeRecruits,
 }: MenuButtonProps) {
   const [isOpen, setIsOpen] = useState(false);
 
@@ -66,7 +68,7 @@ export default function MenuButton({
           >
             Brothers
           </Link>
-          {isLoggedIn && (
+          {canSeeRecruits && (
             <Link
               href="/recruits"
               className="text-lg hover:underline"
@@ -90,6 +92,16 @@ export default function MenuButton({
               onClick={toggleMenu}
             >
               Edit Profile
+            </Link>
+          )}
+
+          {isBoardMember && (
+            <Link
+              href="/dashboard"
+              className="text-lg hover:underline"
+              onClick={toggleMenu}
+            >
+              Dashboard
             </Link>
           )}
 

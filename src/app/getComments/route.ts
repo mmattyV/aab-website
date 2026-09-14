@@ -1,6 +1,7 @@
 // app/api/comments/route.ts
 import { NextResponse } from "next/server";
 import { sql } from "@vercel/postgres";
+import { getSessionBrother } from "@/app/lib/board-access";
 
 // Define types for our data
 type RecruitComment = {
@@ -27,6 +28,16 @@ function formatComments(data: BrotherComments[]): string {
 }
 
 export async function GET() {
+  // This dumps every recruit comment with its author, so it is board-only —
+  // independent of the recruits switch, which only widens access, never this.
+  const actor = await getSessionBrother();
+  if (!actor) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (!actor.isBoardMember) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   try {
     // Query the database for comments along with brother and recruit names.
     const result = await sql`

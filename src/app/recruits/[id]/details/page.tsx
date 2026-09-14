@@ -6,7 +6,9 @@ import {
   fetchAllComments,
 } from "@/app/lib/data";
 import { RecruitProfile } from "@/app/ui/recruits/RecruitProfile";
-import { auth } from "@/auth"; // Ensure this path is correct
+import { redirect } from "next/navigation";
+import { getRecruitsAccess, loginRedirectFor } from "@/app/lib/board-access";
+import { RecruitsClosed } from "@/app/ui/recruits/RecruitsClosed";
 import { RecruitCommentProps } from "@/app/lib/definitions";
 
 type PageProps = {
@@ -14,22 +16,20 @@ type PageProps = {
 };
 
 export default async function Page(props: PageProps) {
-  // 1) Authenticate the user
-  const session = await auth();
-  if (!session || !session.user?.email || !session.user?.id) {
-    console.warn("⚠️ No user session found.");
-    return (
-      <div className="p-4 text-center text-red-500">
-        Please log in to view recruit data.
-      </div>
-    );
-  }
-
-  const userId = session.user.id;
-
   // 2) Await the searchParams and extract the recruit ID
   const params = await props.params;
   const recruitId = params.id;
+
+  // 1) Authenticate the user, and check recruits are open to them
+  const access = await getRecruitsAccess();
+  if (access.status === "signed-out") {
+    redirect(loginRedirectFor(`/recruits/${recruitId}/details`));
+  }
+  if (access.status === "closed") {
+    return <RecruitsClosed />;
+  }
+
+  const userId = access.brother.id;
 
   // 3) Fetch recruit profile data
   const recruitProfileData = await fetchRecruitById(recruitId);

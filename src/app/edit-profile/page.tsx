@@ -1,17 +1,17 @@
-import { auth } from "@/auth";
 import { fetchBrotherById } from "@/app/lib/data"; // <= We'll create or assume this
+import { getSessionBrother } from "@/app/lib/board-access";
 import EditProfileForm from "@/app/ui/components/EditProfileForm"; // <= Our new client form
 
 export default async function Page() {
   // 1) Ensure user is logged in
-  const session = await auth();
-  if (!session || !session.user?.id) {
+  const sessionBrother = await getSessionBrother();
+  if (!sessionBrother) {
     console.warn("⚠️ No user session found.");
     return <div>Please log in to edit your profile.</div>;
   }
 
   // 2) Fetch existing brother data from DB using the user ID
-  const brotherId = session.user.id;
+  const brotherId = sessionBrother.id;
   const brother = await fetchBrotherById(brotherId);
 
   if (!brother) {
@@ -31,7 +31,11 @@ export default async function Page() {
       {/* Edit Form */}
       <div className="relative w-full flex flex-col items-center mt-[-5rem]">
         <div className="px-4 max-w-lg mx-auto w-full">
-          <EditProfileForm brother={brother} id={brotherId} />
+          <EditProfileForm
+            brother={brother}
+            id={brotherId}
+            canEditPosition={sessionBrother.isBoardMember}
+          />
         </div>
       </div>
     </div>
