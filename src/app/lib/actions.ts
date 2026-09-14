@@ -511,10 +511,8 @@ export async function updateBrotherProfile(
     return { message: "No changes to save. Update a field first." };
   }
 
-  const currentImageUrl = (existingRow.image_url as string | null) ?? null;
-  let newImageUrl: string | null = currentImageUrl;
+  let newImageUrl: string | null = (existingRow.image_url as string | null) ?? null;
   let uploadedImage: UploadedProfileImage | null = null;
-  let supersededImageUrls: string[] = [];
 
   if (imageFile) {
     try {
@@ -524,16 +522,19 @@ export async function updateBrotherProfile(
       return { message: "Failed to upload new photo." };
     }
     newImageUrl = uploadedImage.serialized;
-    // Never delete a URL the new image also uses.
-    supersededImageUrls = extractImageUrls(currentImageUrl).filter(
-      (url) => !uploadedImage!.urls.includes(url)
-    );
   }
 
   // ✅ Update the database
+  //
+  // The image_url being replaced is read back from this statement rather than
+  // from the SELECT above. `FOR UPDATE` serializes concurrent edits of the same
+  // profile, so each request sees the value it actually superseded: without it,
+  // two simultaneous edits both read the original URL, both delete it, and the
+  // losing request's upload is left in storage with nothing referencing it.
+  let supersededImageUrls: string[] = [];
   try {
-    await sql`
-      UPDATE brothers
+    const updated = await sql`
+      UPDATE brothers AS b
       SET
         first_name = ${parsed.data.first_name},
         last_name = ${parsed.data.last_name},
@@ -550,8 +551,31 @@ export async function updateBrotherProfile(
         bio = ${parsed.data.bio},
         instagram = ${parsed.data.instagram || null},
         image_url = ${newImageUrl} -- ✅ Keeps old image if no new one is uploaded
-      WHERE id = ${parsed.data.brotherId}
+      FROM (
+        SELECT image_url AS old_url
+        FROM brothers
+        WHERE id = ${parsed.data.brotherId}
+        FOR UPDATE
+      ) AS prev
+      WHERE b.id = ${parsed.data.brotherId}
+      RETURNING prev.old_url
     `;
+
+    if (updated.rows.length === 0) {
+      // Row disappeared between the read and the write.
+      if (uploadedImage) {
+        await deleteImageUrls(uploadedImage.urls);
+      }
+      return { message: "Profile not found." };
+    }
+
+    if (uploadedImage) {
+      const replacedUrl = updated.rows[0].old_url as string | null;
+      // Never delete a URL the new image also uses.
+      supersededImageUrls = extractImageUrls(replacedUrl).filter(
+        (url) => !uploadedImage!.urls.includes(url)
+      );
+    }
   } catch (error) {
     console.error("DB Error:", error);
     // The row still points at the old image, so discard what we just uploaded.
