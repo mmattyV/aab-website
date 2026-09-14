@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "next lint",
     "cleanup-images": "tsx scripts/cleanup-unused-images.ts",
-    "cleanup-images:execute": "tsx scripts/cleanup-unused-images.ts --execute"
+    "cleanup-images:execute": "tsx scripts/cleanup-unused-images.ts --execute",
+    "backfill-images": "tsx scripts/backfill-image-variants.ts",
+    "backfill-images:execute": "tsx scripts/backfill-image-variants.ts --execute"
   },
   "dependencies": {
     "@heroicons/react": "^2.2.0",

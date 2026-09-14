@@ -22,14 +22,14 @@ export const RecruitCard: React.FC<RecruitCardProps> = ({
     >
       <div
         className="relative flex-none basis-[230px] aspect-[3/4] cursor-pointer
-                   transition-all duration-300 group overflow-hidden"
+                   transition-all duration-300 group overflow-hidden bg-zinc-200"
       >
         {/* Next.js optimized image with lazy loading */}
         <Image
           src={thumbnailUrl}
           alt={`${first_name} ${last_name}`}
           fill
-          sizes="(max-width: 768px) 50vw, (max-width: 1200px) 33vw, 230px"
+          sizes="230px"
           className="object-cover"
           priority={priority}
         />
