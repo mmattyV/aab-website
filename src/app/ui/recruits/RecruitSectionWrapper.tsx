@@ -2,6 +2,10 @@ import { fetchAllComments, fetchAllRecruits } from "@/app/lib/data";
 import { RecruitYearSection } from "@/app/ui/recruits/RecruitYearSection";
 import { auth } from "@/auth";
 
+// Roughly the first two rows of the grid. Everything past this lazy-loads, so
+// the browser isn't racing dozens of preloads against the ones on screen.
+const PRIORITY_IMAGE_BUDGET = 8;
+
 export default async function RecruitSectionWrapper({
   activeTab,
 }: {
@@ -46,15 +50,26 @@ export default async function RecruitSectionWrapper({
   // 6. Split recruits by year for display
   const years = Array.from(new Set(filteredRecruits.map((r) => r.year)));
 
+  // Spend the preload budget across sections in render order rather than
+  // restarting it inside every year.
+  let remainingPriority = PRIORITY_IMAGE_BUDGET;
+
   return (
     <div className="flex flex-col mt-9 max-w-full w-[1290px]">
-      {years.map((year) => (
-        <RecruitYearSection
-          key={year}
-          year={year.toString()}
-          recruits={filteredRecruits.filter((r) => r.year === year)}
-        />
-      ))}
+      {years.map((year) => {
+        const yearRecruits = filteredRecruits.filter((r) => r.year === year);
+        const priorityCount = Math.min(remainingPriority, yearRecruits.length);
+        remainingPriority -= priorityCount;
+
+        return (
+          <RecruitYearSection
+            key={year}
+            year={year.toString()}
+            recruits={yearRecruits}
+            priorityCount={priorityCount}
+          />
+        );
+      })}
     </div>
   );
 }

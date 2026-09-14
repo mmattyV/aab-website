@@ -1,4 +1,5 @@
 import * as React from "react";
+import Image from "next/image";
 import { PillarProps } from "@/app/lib/definitions";
 
 export const Pillar: React.FC<PillarProps & { additionalClasses?: string }> = ({
@@ -8,11 +9,20 @@ export const Pillar: React.FC<PillarProps & { additionalClasses?: string }> = ({
   additionalClasses = "",
 }) => (
   <div
-    className={`relative flex flex-col lg:flex-row items-start lg:items-center pt-5 pb-64 pl-5 pr-5 w-full bg-center bg-no-repeat bg-cover min-h-[643px] max-md:pb-24 max-md:pl-5 max-md:pr-5 max-md:max-w-full ${additionalClasses}`}
-    style={{
-      backgroundImage: `url(${backgroundImage})`,
-    }}
+    className={`relative flex flex-col lg:flex-row items-start lg:items-center pt-5 pb-64 pl-5 pr-5 w-full min-h-[643px] max-md:pb-24 max-md:pl-5 max-md:pr-5 max-md:max-w-full ${additionalClasses}`}
   >
+    {/* Background image: below the fold, so it stays lazy and only downloads a
+        viewport-sized variant instead of the full-res file */}
+    <Image
+      src={backgroundImage}
+      alt=""
+      fill
+      sizes="100vw"
+      quality={88}
+      placeholder="blur"
+      className="object-cover object-center"
+    />
+
     {/* Transparent Overlay Layer */}
     <div className="absolute inset-0 w-full h-full bg-black opacity-50"></div>
 
