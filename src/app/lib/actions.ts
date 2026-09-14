@@ -7,13 +7,15 @@ import { sql } from "@vercel/postgres";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { randomUUID } from "crypto";
-import { put, del } from "@vercel/blob";
 import { BrotherSchema, RecruitSchema, EditBrotherSchema } from "./zod-schemas";
 import bcrypt from "bcrypt";
 import { validateImageFile } from "@/app/utils/validateImage";
-import { sanitizeFilename } from "@/app/utils/sanitizeFilename";
-import { generateImageVariants } from "@/app/utils/compressImage";
-import { serializeImageUrls } from "@/app/utils/imageUrlHelper";
+import {
+  uploadProfileImageVariants,
+  deleteImageUrls,
+  extractImageUrls,
+  type UploadedProfileImage,
+} from "@/app/lib/blob-images";
 
 // ============= AUTH / SIGNIN / SIGNOUT =================
 export async function authenticate(
@@ -246,36 +248,17 @@ export async function createBrotherAccount(
   const hashedPassword = await bcrypt.hash(parsed.data.password, 10);
 
   // 5) Generate image variants and upload to Vercel Blob
+  let uploadedImage: UploadedProfileImage;
   try {
-    // Generate thumbnail, medium, and full size images
-    const variants = await generateImageVariants(imageFile);
-    const sanitizedFilename = sanitizeFilename(imageFile.name);
-    const baseFileName = `brother-profile-${randomUUID()}-${sanitizedFilename}`;
-    
-    // Upload all three sizes in parallel
-    const [thumbResult, mediumResult, fullResult] = await Promise.all([
-      put(`${baseFileName}-thumb.jpg`, variants.thumbnail, {
-        access: "public",
-        contentType: "image/jpeg",
-      }),
-      put(`${baseFileName}-medium.jpg`, variants.medium, {
-        access: "public",
-        contentType: "image/jpeg",
-      }),
-      put(`${baseFileName}-full.jpg`, variants.full, {
-        access: "public",
-        contentType: "image/jpeg",
-      }),
-    ]);
-    
-    // Store all URLs as JSON string
-    const url = serializeImageUrls({
-      thumbnail: thumbResult.url,
-      medium: mediumResult.url,
-      full: fullResult.url,
-    });
+    uploadedImage = await uploadProfileImageVariants(imageFile, "brother-profile");
+  } catch (error) {
+    console.error("Upload Error:", error);
+    return { message: "Failed to upload profile photo." };
+  }
 
-    // 6) Insert into DB
+  // 6) Insert into DB. If this fails the blobs we just wrote have nothing
+  //    pointing at them, so remove them before returning.
+  try {
     const brotherId = randomUUID();
     await sql`
       INSERT INTO brothers (
@@ -314,11 +297,12 @@ export async function createBrotherAccount(
         ${parsed.data.position},
         ${parsed.data.bio},
         ${parsed.data.instagram},
-        ${url}
+        ${uploadedImage.serialized}
       )
     `;
   } catch (error) {
-    console.error("Database or Upload Error:", error);
+    console.error("Database Error:", error);
+    await deleteImageUrls(uploadedImage.urls);
     return { message: "Failed to create brother account." };
   }
 
@@ -359,36 +343,18 @@ export async function createRecruitAccount(
     return { message: "No image file was provided." };
   }
 
+  // Generate image variants and upload
+  let uploadedImage: UploadedProfileImage;
   try {
-    // Generate image variants and upload
-    const variants = await generateImageVariants(imageFile);
-    const sanitizedFilename = sanitizeFilename(imageFile.name);
-    const baseFileName = `recruit-profile-${randomUUID()}-${sanitizedFilename}`;
-    
-    // Upload all three sizes in parallel
-    const [thumbResult, mediumResult, fullResult] = await Promise.all([
-      put(`${baseFileName}-thumb.jpg`, variants.thumbnail, {
-        access: "public",
-        contentType: "image/jpeg",
-      }),
-      put(`${baseFileName}-medium.jpg`, variants.medium, {
-        access: "public",
-        contentType: "image/jpeg",
-      }),
-      put(`${baseFileName}-full.jpg`, variants.full, {
-        access: "public",
-        contentType: "image/jpeg",
-      }),
-    ]);
-    
-    // Store all URLs as JSON string
-    const url = serializeImageUrls({
-      thumbnail: thumbResult.url,
-      medium: mediumResult.url,
-      full: fullResult.url,
-    });
+    uploadedImage = await uploadProfileImageVariants(imageFile, "recruit-profile");
+  } catch (error) {
+    console.error("Upload Error:", error);
+    return { message: "Failed to upload profile photo." };
+  }
 
-    // Insert recruit
+  // Insert recruit. A duplicate email (23505) is an expected outcome here, so
+  // the blobs we just uploaded have to be cleaned up on every failure path.
+  try {
     const recruitId = randomUUID();
     await sql`
       INSERT INTO recruits (
@@ -409,11 +375,12 @@ export async function createRecruitAccount(
         ${parsed.data.year},
         ${parsed.data.phone},
         ${parsed.data.room},
-        ${url}
+        ${uploadedImage.serialized}
       )
     `;
   } catch (error: unknown) {
     console.error("Recruit DB Error:", error);
+    await deleteImageUrls(uploadedImage.urls);
 
     if (error instanceof Error && "code" in error && error.code === "23505") {
       return {
@@ -516,8 +483,10 @@ export async function updateBrotherProfile(
     };
   }
 
+  const imageFile = parsed.data.image;
+
   // ✅ Load the row once — used to spot a no-op submit and to reuse/replace images
-  let existingRow: Record<string, unknown> | undefined;
+  let existingRow: Record<string, unknown>;
   try {
     const existing = await sql`
       SELECT first_name, last_name, personal_email, school_email, year, phone,
@@ -526,97 +495,46 @@ export async function updateBrotherProfile(
       FROM brothers
       WHERE id = ${parsed.data.brotherId}
     `;
+    if (existing.rows.length === 0) {
+      return { message: "Profile not found." };
+    }
     existingRow = existing.rows[0];
   } catch (error) {
     console.error("Error fetching existing brother:", error);
+    // Without the current row the UPDATE below would blank out image_url.
+    return { message: "Database Error: Failed to load current profile." };
   }
-
-  const imageFile = parsed.data.image;
 
   // ✅ Nothing to save: no new photo and every field matches what's stored.
   // Say so plainly instead of failing validation on an untouched form.
-  if (!imageFile && existingRow && !hasProfileChanges(parsed.data, existingRow)) {
+  if (!imageFile && !hasProfileChanges(parsed.data, existingRow)) {
     return { message: "No changes to save. Update a field first." };
   }
 
-  let newImageUrl: string | undefined;
+  let newImageUrl: string | null = (existingRow.image_url as string | null) ?? null;
+  let uploadedImage: UploadedProfileImage | null = null;
 
   if (imageFile) {
-    // ✅ Old image URL(s) come from the row already fetched above
-    let oldImageUrls: string[] = [];
-    if (existingRow?.image_url) {
-      const oldImageUrl = existingRow.image_url as string;
-      // Parse old URLs to delete all variants
-      try {
-        const variants = JSON.parse(oldImageUrl);
-        if (variants.thumbnail && variants.medium && variants.full) {
-          oldImageUrls = [variants.thumbnail, variants.medium, variants.full];
-        } else {
-          oldImageUrls = [oldImageUrl]; // Legacy single URL
-        }
-      } catch {
-        oldImageUrls = [oldImageUrl]; // Legacy single URL
-      }
-    }
-
-    // ✅ Generate image variants and upload new images
     try {
-      const variants = await generateImageVariants(imageFile);
-      const sanitizedFilename = sanitizeFilename(imageFile.name);
-      const baseFileName = `brother-profile-${randomUUID()}-${sanitizedFilename}`;
-      
-      // Upload all three sizes in parallel
-      const [thumbResult, mediumResult, fullResult] = await Promise.all([
-        put(`${baseFileName}-thumb.jpg`, variants.thumbnail, {
-          access: "public",
-          contentType: "image/jpeg",
-        }),
-        put(`${baseFileName}-medium.jpg`, variants.medium, {
-          access: "public",
-          contentType: "image/jpeg",
-        }),
-        put(`${baseFileName}-full.jpg`, variants.full, {
-          access: "public",
-          contentType: "image/jpeg",
-        }),
-      ]);
-      
-      // Store all URLs as JSON string
-      newImageUrl = serializeImageUrls({
-        thumbnail: thumbResult.url,
-        medium: mediumResult.url,
-        full: fullResult.url,
-      });
-
-      // ✅ Delete all old image variants from blob storage (non-blocking)
-      if (oldImageUrls.length > 0) {
-        // Delete old images in parallel but don't wait for completion
-        Promise.all(
-          oldImageUrls.map(async (url) => {
-            try {
-              await del(url);
-              console.log(`Successfully deleted old image: ${url}`);
-            } catch (error) {
-              console.error(`Failed to delete old image: ${url}`, error);
-            }
-          })
-        ).catch((error) => {
-          console.error("Error during batch deletion:", error);
-        });
-      }
+      uploadedImage = await uploadProfileImageVariants(imageFile, "brother-profile");
     } catch (error) {
       console.error("Image Upload Error:", error);
       return { message: "Failed to upload new photo." };
     }
-  } else {
-    // ✅ If no new image is uploaded, keep the existing one
-    newImageUrl = existingRow?.image_url as string | undefined;
+    newImageUrl = uploadedImage.serialized;
   }
 
   // ✅ Update the database
+  //
+  // The image_url being replaced is read back from this statement rather than
+  // from the SELECT above. `FOR UPDATE` serializes concurrent edits of the same
+  // profile, so each request sees the value it actually superseded: without it,
+  // two simultaneous edits both read the original URL, both delete it, and the
+  // losing request's upload is left in storage with nothing referencing it.
+  let supersededImageUrls: string[] = [];
   try {
-    await sql`
-      UPDATE brothers
+    const updated = await sql`
+      UPDATE brothers AS b
       SET
         first_name = ${parsed.data.first_name},
         last_name = ${parsed.data.last_name},
@@ -633,11 +551,45 @@ export async function updateBrotherProfile(
         bio = ${parsed.data.bio},
         instagram = ${parsed.data.instagram || null},
         image_url = ${newImageUrl} -- ✅ Keeps old image if no new one is uploaded
-      WHERE id = ${parsed.data.brotherId}
+      FROM (
+        SELECT image_url AS old_url
+        FROM brothers
+        WHERE id = ${parsed.data.brotherId}
+        FOR UPDATE
+      ) AS prev
+      WHERE b.id = ${parsed.data.brotherId}
+      RETURNING prev.old_url
     `;
+
+    if (updated.rows.length === 0) {
+      // Row disappeared between the read and the write.
+      if (uploadedImage) {
+        await deleteImageUrls(uploadedImage.urls);
+      }
+      return { message: "Profile not found." };
+    }
+
+    if (uploadedImage) {
+      const replacedUrl = updated.rows[0].old_url as string | null;
+      // Never delete a URL the new image also uses.
+      supersededImageUrls = extractImageUrls(replacedUrl).filter(
+        (url) => !uploadedImage!.urls.includes(url)
+      );
+    }
   } catch (error) {
     console.error("DB Error:", error);
+    // The row still points at the old image, so discard what we just uploaded.
+    if (uploadedImage) {
+      await deleteImageUrls(uploadedImage.urls);
+    }
     return { message: "Database Error: Failed to update profile." };
+  }
+
+  // The new URL is committed, so the previous variants are now unreferenced.
+  // Awaited on purpose -- a detached promise can be killed when the serverless
+  // function freezes after the response, which is what orphaned them before.
+  if (supersededImageUrls.length > 0) {
+    await deleteImageUrls(supersededImageUrls);
   }
 
   // ✅ Revalidate and Redirect

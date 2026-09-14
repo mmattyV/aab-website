@@ -51,6 +51,10 @@ export async function compressImage(file: File): Promise<{ buffer: Buffer; conte
  * - Thumbnail: 400px width (for cards/grid views)
  * - Medium: 800px width (for smaller screens)
  * - Full: 1200px width (for profile pages/large screens)
+ *
+ * `.rotate()` applies the EXIF orientation before resizing. Encoding to JPEG
+ * strips metadata, so without it a photo shot sideways stays sideways with no
+ * orientation tag left for the browser to correct.
  * 
  * @param file - The image file to process
  * @returns Object with all three size variants as buffers
@@ -69,6 +73,7 @@ export async function generateImageVariants(file: File): Promise<ImageVariants> 
       // Thumbnail: 400px width for cards
       image
         .clone()
+        .rotate()
         .resize(400, null, { 
           withoutEnlargement: true,
           fit: 'inside'
@@ -79,6 +84,7 @@ export async function generateImageVariants(file: File): Promise<ImageVariants> 
       // Medium: 800px width for smaller screens
       image
         .clone()
+        .rotate()
         .resize(800, null, { 
           withoutEnlargement: true,
           fit: 'inside'
@@ -89,6 +95,7 @@ export async function generateImageVariants(file: File): Promise<ImageVariants> 
       // Full: 1200px width for profile pages
       image
         .clone()
+        .rotate()
         .resize(1200, null, { 
           withoutEnlargement: true,
           fit: 'inside'
