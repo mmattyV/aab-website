@@ -7,13 +7,15 @@ import { sql } from "@vercel/postgres";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { randomUUID } from "crypto";
-import { put, del } from "@vercel/blob";
 import { BrotherSchema, RecruitSchema, EditBrotherSchema } from "./zod-schemas";
 import bcrypt from "bcrypt";
 import { validateImageFile } from "@/app/utils/validateImage";
-import { sanitizeFilename } from "@/app/utils/sanitizeFilename";
-import { generateImageVariants } from "@/app/utils/compressImage";
-import { serializeImageUrls } from "@/app/utils/imageUrlHelper";
+import {
+  uploadProfileImageVariants,
+  deleteImageUrls,
+  extractImageUrls,
+  type UploadedProfileImage,
+} from "@/app/lib/blob-images";
 
 // ============= AUTH / SIGNIN / SIGNOUT =================
 export async function authenticate(
@@ -246,36 +248,17 @@ export async function createBrotherAccount(
   const hashedPassword = await bcrypt.hash(parsed.data.password, 10);
 
   // 5) Generate image variants and upload to Vercel Blob
+  let uploadedImage: UploadedProfileImage;
   try {
-    // Generate thumbnail, medium, and full size images
-    const variants = await generateImageVariants(imageFile);
-    const sanitizedFilename = sanitizeFilename(imageFile.name);
-    const baseFileName = `brother-profile-${randomUUID()}-${sanitizedFilename}`;
-    
-    // Upload all three sizes in parallel
-    const [thumbResult, mediumResult, fullResult] = await Promise.all([
-      put(`${baseFileName}-thumb.jpg`, variants.thumbnail, {
-        access: "public",
-        contentType: "image/jpeg",
-      }),
-      put(`${baseFileName}-medium.jpg`, variants.medium, {
-        access: "public",
-        contentType: "image/jpeg",
-      }),
-      put(`${baseFileName}-full.jpg`, variants.full, {
-        access: "public",
-        contentType: "image/jpeg",
-      }),
-    ]);
-    
-    // Store all URLs as JSON string
-    const url = serializeImageUrls({
-      thumbnail: thumbResult.url,
-      medium: mediumResult.url,
-      full: fullResult.url,
-    });
+    uploadedImage = await uploadProfileImageVariants(imageFile, "brother-profile");
+  } catch (error) {
+    console.error("Upload Error:", error);
+    return { message: "Failed to upload profile photo." };
+  }
 
-    // 6) Insert into DB
+  // 6) Insert into DB. If this fails the blobs we just wrote have nothing
+  //    pointing at them, so remove them before returning.
+  try {
     const brotherId = randomUUID();
     await sql`
       INSERT INTO brothers (
@@ -314,11 +297,12 @@ export async function createBrotherAccount(
         ${parsed.data.position},
         ${parsed.data.bio},
         ${parsed.data.instagram},
-        ${url}
+        ${uploadedImage.serialized}
       )
     `;
   } catch (error) {
-    console.error("Database or Upload Error:", error);
+    console.error("Database Error:", error);
+    await deleteImageUrls(uploadedImage.urls);
     return { message: "Failed to create brother account." };
   }
 
@@ -359,36 +343,18 @@ export async function createRecruitAccount(
     return { message: "No image file was provided." };
   }
 
+  // Generate image variants and upload
+  let uploadedImage: UploadedProfileImage;
   try {
-    // Generate image variants and upload
-    const variants = await generateImageVariants(imageFile);
-    const sanitizedFilename = sanitizeFilename(imageFile.name);
-    const baseFileName = `recruit-profile-${randomUUID()}-${sanitizedFilename}`;
-    
-    // Upload all three sizes in parallel
-    const [thumbResult, mediumResult, fullResult] = await Promise.all([
-      put(`${baseFileName}-thumb.jpg`, variants.thumbnail, {
-        access: "public",
-        contentType: "image/jpeg",
-      }),
-      put(`${baseFileName}-medium.jpg`, variants.medium, {
-        access: "public",
-        contentType: "image/jpeg",
-      }),
-      put(`${baseFileName}-full.jpg`, variants.full, {
-        access: "public",
-        contentType: "image/jpeg",
-      }),
-    ]);
-    
-    // Store all URLs as JSON string
-    const url = serializeImageUrls({
-      thumbnail: thumbResult.url,
-      medium: mediumResult.url,
-      full: fullResult.url,
-    });
+    uploadedImage = await uploadProfileImageVariants(imageFile, "recruit-profile");
+  } catch (error) {
+    console.error("Upload Error:", error);
+    return { message: "Failed to upload profile photo." };
+  }
 
-    // Insert recruit
+  // Insert recruit. A duplicate email (23505) is an expected outcome here, so
+  // the blobs we just uploaded have to be cleaned up on every failure path.
+  try {
     const recruitId = randomUUID();
     await sql`
       INSERT INTO recruits (
@@ -409,11 +375,12 @@ export async function createRecruitAccount(
         ${parsed.data.year},
         ${parsed.data.phone},
         ${parsed.data.room},
-        ${url}
+        ${uploadedImage.serialized}
       )
     `;
   } catch (error: unknown) {
     console.error("Recruit DB Error:", error);
+    await deleteImageUrls(uploadedImage.urls);
 
     if (error instanceof Error && "code" in error && error.code === "23505") {
       return {
@@ -476,89 +443,39 @@ export async function updateBrotherProfile(
     };
   }
 
-  let newImageUrl: string | undefined;
   const imageFile = parsed.data.image;
 
-  if (imageFile) {
-    // ✅ Fetch old image URL(s) before uploading new one
-    let oldImageUrls: string[] = [];
-    try {
-      const existingBrother =
-        await sql`SELECT image_url FROM brothers WHERE id = ${parsed.data.brotherId}`;
-      if (existingBrother.rows.length > 0) {
-        const oldImageUrl = existingBrother.rows[0].image_url;
-        // Parse old URLs to delete all variants
-        try {
-          const parsed = JSON.parse(oldImageUrl);
-          if (parsed.thumbnail && parsed.medium && parsed.full) {
-            oldImageUrls = [parsed.thumbnail, parsed.medium, parsed.full];
-          } else {
-            oldImageUrls = [oldImageUrl]; // Legacy single URL
-          }
-        } catch {
-          oldImageUrls = [oldImageUrl]; // Legacy single URL
-        }
-      }
-    } catch (error) {
-      console.error("Error fetching existing image:", error);
+  // Read the row once: we need the current image both to preserve it when no
+  // new file was supplied and to know what to clean up when one was.
+  let currentImageUrl: string | null = null;
+  try {
+    const existingBrother =
+      await sql`SELECT image_url FROM brothers WHERE id = ${parsed.data.brotherId}`;
+    if (existingBrother.rows.length === 0) {
+      return { message: "Profile not found." };
     }
+    currentImageUrl = existingBrother.rows[0].image_url;
+  } catch (error) {
+    console.error("Error fetching existing image:", error);
+    return { message: "Database Error: Failed to load current profile." };
+  }
 
-    // ✅ Generate image variants and upload new images
+  let newImageUrl: string | null = currentImageUrl;
+  let uploadedImage: UploadedProfileImage | null = null;
+  let supersededImageUrls: string[] = [];
+
+  if (imageFile) {
     try {
-      const variants = await generateImageVariants(imageFile);
-      const sanitizedFilename = sanitizeFilename(imageFile.name);
-      const baseFileName = `brother-profile-${randomUUID()}-${sanitizedFilename}`;
-      
-      // Upload all three sizes in parallel
-      const [thumbResult, mediumResult, fullResult] = await Promise.all([
-        put(`${baseFileName}-thumb.jpg`, variants.thumbnail, {
-          access: "public",
-          contentType: "image/jpeg",
-        }),
-        put(`${baseFileName}-medium.jpg`, variants.medium, {
-          access: "public",
-          contentType: "image/jpeg",
-        }),
-        put(`${baseFileName}-full.jpg`, variants.full, {
-          access: "public",
-          contentType: "image/jpeg",
-        }),
-      ]);
-      
-      // Store all URLs as JSON string
-      newImageUrl = serializeImageUrls({
-        thumbnail: thumbResult.url,
-        medium: mediumResult.url,
-        full: fullResult.url,
-      });
-
-      // ✅ Delete all old image variants from blob storage (non-blocking)
-      if (oldImageUrls.length > 0) {
-        // Delete old images in parallel but don't wait for completion
-        Promise.all(
-          oldImageUrls.map(async (url) => {
-            try {
-              await del(url);
-              console.log(`Successfully deleted old image: ${url}`);
-            } catch (error) {
-              console.error(`Failed to delete old image: ${url}`, error);
-            }
-          })
-        ).catch((error) => {
-          console.error("Error during batch deletion:", error);
-        });
-      }
+      uploadedImage = await uploadProfileImageVariants(imageFile, "brother-profile");
     } catch (error) {
       console.error("Image Upload Error:", error);
       return { message: "Failed to upload new photo." };
     }
-  } else {
-    // ✅ If no new image is uploaded, keep the existing one
-    const existingBrother =
-      await sql`SELECT image_url FROM brothers WHERE id = ${parsed.data.brotherId}`;
-    if (existingBrother.rows.length > 0) {
-      newImageUrl = existingBrother.rows[0].image_url; // Preserve current image
-    }
+    newImageUrl = uploadedImage.serialized;
+    // Never delete a URL the new image also uses.
+    supersededImageUrls = extractImageUrls(currentImageUrl).filter(
+      (url) => !uploadedImage!.urls.includes(url)
+    );
   }
 
   // ✅ Update the database
@@ -585,7 +502,18 @@ export async function updateBrotherProfile(
     `;
   } catch (error) {
     console.error("DB Error:", error);
+    // The row still points at the old image, so discard what we just uploaded.
+    if (uploadedImage) {
+      await deleteImageUrls(uploadedImage.urls);
+    }
     return { message: "Database Error: Failed to update profile." };
+  }
+
+  // The new URL is committed, so the previous variants are now unreferenced.
+  // Awaited on purpose -- a detached promise can be killed when the serverless
+  // function freezes after the response, which is what orphaned them before.
+  if (supersededImageUrls.length > 0) {
+    await deleteImageUrls(supersededImageUrls);
   }
 
   // ✅ Revalidate and Redirect

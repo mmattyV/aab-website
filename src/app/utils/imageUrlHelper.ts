@@ -57,3 +57,52 @@ export function getImageUrl(imageUrlField: string, size: 'thumbnail' | 'medium' 
   const urls = parseImageUrl(imageUrlField);
   return urls[size];
 }
+
+/**
+ * Only blobs we actually own may be passed to the blob delete API. Local paths
+ * such as "/profile-image.jpg" and placeholder URLs must never reach it.
+ *
+ * @param url - Candidate URL
+ * @returns True if this is a Vercel Blob URL we can safely delete
+ */
+export function isBlobUrl(url: unknown): url is string {
+  if (typeof url !== "string" || url.length === 0) return false;
+  try {
+    const { protocol, hostname } = new URL(url);
+    return protocol === "https:" && hostname.endsWith(".blob.vercel-storage.com");
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Pull every stored URL out of an image_url value, handling both the JSON
+ * multi-size format and the legacy single-URL format.
+ *
+ * Unlike parseImageUrl this does not fall back to duplicating a single URL
+ * across all three sizes -- callers use it to decide what to delete, so it
+ * returns exactly what is stored and nothing more.
+ *
+ * @param imageUrlField - The image_url value from database
+ * @returns Every distinct URL referenced by the field
+ */
+export function extractImageUrls(
+  imageUrlField: string | null | undefined
+): string[] {
+  if (typeof imageUrlField !== "string") return [];
+  const trimmed = imageUrlField.trim();
+  if (!trimmed) return [];
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed && typeof parsed === "object") {
+      return [parsed.thumbnail, parsed.medium, parsed.full].filter(
+        (url): url is string => typeof url === "string" && url.length > 0
+      );
+    }
+  } catch {
+    // Not JSON -- fall through and treat it as a legacy single URL.
+  }
+
+  return [trimmed];
+}
