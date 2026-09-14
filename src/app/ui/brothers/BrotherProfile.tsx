@@ -5,12 +5,7 @@ import { ContactSection } from "@/app/ui/components/ContactSection";
 import { BrotherProfileProps, ContactInfo } from "@/app/lib/definitions";
 import { getImageUrl } from "@/app/utils/imageUrlHelper";
 import { getPublicPositionLabel } from "@/app/lib/positions";
-
-function formatDate(date: string | Date | null | undefined) {
-  if (!date) return "Not provided";
-  if (typeof date === "string") return date;
-  return new Intl.DateTimeFormat("en-US", { dateStyle: "long" }).format(date);
-}
+import { formatDisplayDate } from "@/app/utils/dateHelper";
 
 type BrotherProfileComponentProps = BrotherProfileProps & {
   isLoggedIn?: boolean; // pass a boolean to decide what contact info to show
@@ -141,7 +136,7 @@ export function BrotherProfile({
                 Hometown: {location || "Unknown"}
               </div>
               <div className="p-2.5 mt-1">
-                Birthday: {formatDate(birthday)}
+                Birthday: {formatDisplayDate(birthday)}
               </div>
               <div className="p-2.5 mt-1">
                 Brother Name: {brother_name || "N/A"}

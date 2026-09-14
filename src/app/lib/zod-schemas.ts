@@ -73,8 +73,9 @@ export const EditBrotherSchema = z.object({
       .union([z.instanceof(File), z.null(), z.undefined()]) // Allow null and undefined
       .refine(
         (file) => {
-          // Skip validation if no file is provided
-          if (!file || !(file instanceof File)) {
+          // Skip validation if no file is provided. An untouched file input
+          // still submits an empty File, which is not an upload either.
+          if (!file || !(file instanceof File) || file.size === 0) {
             return true; // No file, so validation passes
           }
   
