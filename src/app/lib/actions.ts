@@ -397,6 +397,49 @@ export async function createRecruitAccount(
   redirect("/");
 }
 
+/** Profile fields a brother can edit, in the shape the form submits them. */
+const EDITABLE_PROFILE_FIELDS = [
+  "first_name",
+  "last_name",
+  "personal_email",
+  "school_email",
+  "year",
+  "phone",
+  "house",
+  "brother_name",
+  "birthday",
+  "location",
+  "tagline",
+  "position",
+  "bio",
+  "instagram",
+] as const;
+
+/**
+ * Whether a submitted profile differs from what's stored.
+ *
+ * Both sides are compared as trimmed strings: the form sends everything as
+ * text, while the database hands back numbers for `year` and NULL for an
+ * empty `instagram`.
+ */
+function hasProfileChanges(
+  submitted: Record<string, unknown>,
+  stored: Record<string, unknown>
+): boolean {
+  const normalize = (value: unknown) =>
+    value === null || value === undefined ? "" : String(value).trim();
+
+  return EDITABLE_PROFILE_FIELDS.some((field) => {
+    const submittedValue = normalize(submitted[field]);
+    const storedValue = normalize(stored[field]);
+    // Emails are lowercased on the way in, so compare them case-insensitively
+    if (field === "personal_email" || field === "school_email") {
+      return submittedValue.toLowerCase() !== storedValue.toLowerCase();
+    }
+    return submittedValue !== storedValue;
+  });
+}
+
 export async function updateBrotherProfile(
   prevState: State,
   formData: FormData
@@ -420,13 +463,10 @@ export async function updateBrotherProfile(
     instagram: formData.get("instagram")?.toString() || "",
     image: (() => {
       const file = formData.get("image");
-      // Check if the file is invalid (name: "undefined", type: "application/octet-stream", size: 0)
-      if (
-        file instanceof File &&
-        file.name === "undefined" &&
-        file.type === "application/octet-stream" &&
-        file.size === 0
-      ) {
+      // An untouched file input still submits a File — empty, and named ""
+      // in most browsers or "undefined" in some. Either way there is no
+      // upload, so don't run it through the image validation.
+      if (file instanceof File && (file.size === 0 || !file.name || file.name === "undefined")) {
         return null; // Treat as no file uploaded
       }
       return file; // Otherwise, return the file
@@ -445,21 +485,33 @@ export async function updateBrotherProfile(
 
   const imageFile = parsed.data.image;
 
-  // Read the row once: we need the current image both to preserve it when no
-  // new file was supplied and to know what to clean up when one was.
-  let currentImageUrl: string | null = null;
+  // ✅ Load the row once — used to spot a no-op submit and to reuse/replace images
+  let existingRow: Record<string, unknown>;
   try {
-    const existingBrother =
-      await sql`SELECT image_url FROM brothers WHERE id = ${parsed.data.brotherId}`;
-    if (existingBrother.rows.length === 0) {
+    const existing = await sql`
+      SELECT first_name, last_name, personal_email, school_email, year, phone,
+             house, brother_name, TO_CHAR(birthday, 'YYYY-MM-DD') AS birthday,
+             location, tagline, position, bio, instagram, image_url
+      FROM brothers
+      WHERE id = ${parsed.data.brotherId}
+    `;
+    if (existing.rows.length === 0) {
       return { message: "Profile not found." };
     }
-    currentImageUrl = existingBrother.rows[0].image_url;
+    existingRow = existing.rows[0];
   } catch (error) {
-    console.error("Error fetching existing image:", error);
+    console.error("Error fetching existing brother:", error);
+    // Without the current row the UPDATE below would blank out image_url.
     return { message: "Database Error: Failed to load current profile." };
   }
 
+  // ✅ Nothing to save: no new photo and every field matches what's stored.
+  // Say so plainly instead of failing validation on an untouched form.
+  if (!imageFile && !hasProfileChanges(parsed.data, existingRow)) {
+    return { message: "No changes to save. Update a field first." };
+  }
+
+  const currentImageUrl = (existingRow.image_url as string | null) ?? null;
   let newImageUrl: string | null = currentImageUrl;
   let uploadedImage: UploadedProfileImage | null = null;
   let supersededImageUrls: string[] = [];

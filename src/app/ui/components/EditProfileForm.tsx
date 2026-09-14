@@ -1,12 +1,14 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useCallback, useEffect, useMemo, useRef } from "react";
 import { updateBrotherProfile, State } from "@/app/lib/actions";
 import { BrotherProfileProps } from "@/app/lib/definitions";
 import { ExclamationCircleIcon } from "@heroicons/react/24/outline";
 import { useState } from "react";
 import Image from "next/image";
 import { BROTHER_POSITIONS } from "@/app/lib/positions";
+import { getImageUrl } from "@/app/utils/imageUrlHelper";
+import { toDateInputValue } from "@/app/utils/dateHelper";
 
 export default function EditProfileForm({
   brother,
@@ -24,6 +26,58 @@ export default function EditProfileForm({
   const [imageError, setImageError] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
 
+  const formRef = useRef<HTMLFormElement>(null);
+  const [isDirty, setIsDirty] = useState(false);
+
+  // Saving is only gated once the form is interactive. Rendering the button
+  // enabled on the server means a failed hydration leaves a usable form —
+  // the action rejects an unchanged submit on its own.
+  const [isInteractive, setIsInteractive] = useState(false);
+  useEffect(() => setIsInteractive(true), []);
+
+  // What the form started with, in the same string shape the inputs submit.
+  const initialValues = useMemo<Record<string, string>>(
+    () => ({
+      first_name: brother.first_name ?? "",
+      last_name: brother.last_name ?? "",
+      personal_email: brother.personal_email ?? "",
+      school_email: brother.school_email ?? "",
+      year: brother.year ? String(brother.year) : "",
+      phone: brother.phone ?? "",
+      house: brother.house ?? "",
+      brother_name: brother.brother_name ?? "",
+      birthday: toDateInputValue(brother.birthday),
+      location: brother.location ?? "",
+      tagline: brother.tagline ?? "",
+      position: brother.position ?? "",
+      bio: brother.bio ?? "",
+      instagram: brother.instagram ?? "",
+    }),
+    [brother]
+  );
+
+  // Re-read the whole form rather than tracking each field, so reverting an
+  // edit marks the form clean again.
+  const recomputeDirty = useCallback(() => {
+    const form = formRef.current;
+    if (!form) return;
+    const data = new FormData(form);
+
+    const fieldChanged = Object.entries(initialValues).some(
+      ([name, initial]) => (data.get(name)?.toString() ?? "") !== initial
+    );
+    const file = data.get("image");
+    const hasNewImage = file instanceof File && file.size > 0;
+
+    setIsDirty(fieldChanged || hasNewImage);
+  }, [initialValues]);
+
+  // The picture already on file, shown until the brother picks a new one.
+  const currentImageUrl = brother.image_url
+    ? getImageUrl(brother.image_url, "medium")
+    : null;
+  const previewUrl = imagePreview ?? currentImageUrl;
+
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setImageError(null);
     const file = e.target.files?.[0];
@@ -33,6 +87,7 @@ export default function EditProfileForm({
       if (file.size > maxSize) {
         setImageError("Image must be under 5MB");
         e.target.value = ""; // Reset the input
+        setImagePreview(null); // Fall back to the current picture
         return;
       }
 
@@ -47,6 +102,7 @@ export default function EditProfileForm({
       if (!isValidExtension || !isValidMimeType) {
         setImageError("Only JPEG, JPG, and PNG files are allowed.");
         e.target.value = ""; // Reset the input
+        setImagePreview(null); // Fall back to the current picture
         return;
       }
       if (isValidExtension && isValidMimeType) {
@@ -56,16 +112,34 @@ export default function EditProfileForm({
         };
         reader.readAsDataURL(file);
       }
+    } else {
+      setImagePreview(null); // Selection cleared — show the current picture
     }
+    recomputeDirty();
   };
 
-  // Constants for dropdown lists
+  // Constants for dropdown lists. The stored value is folded in so an older
+  // year or a retired position still prefills instead of silently resetting
+  // to whichever option happens to be first.
+  const currentYear = brother.year ? String(brother.year) : "";
   const validYears = ["2028", "2027", "2026", "2025"];
-  const positions = BROTHER_POSITIONS;
+  const years =
+    currentYear && !validYears.includes(currentYear)
+      ? [...validYears, currentYear]
+      : validYears;
+  const positions: string[] = BROTHER_POSITIONS.includes(
+    brother.position as (typeof BROTHER_POSITIONS)[number]
+  )
+    ? [...BROTHER_POSITIONS]
+    : [...BROTHER_POSITIONS, brother.position].filter(Boolean);
+
+  const isSaveDisabled = !!imageError || (isInteractive && !isDirty);
 
   return (
     <form
+      ref={formRef}
       action={formAction}
+      onChange={recomputeDirty}
       className="flex flex-col w-full bg-white text-black rounded-md p-10 max-md:p-6 shadow-lg relative"
     >
       <h2 className="text-4xl font-bold mb-4">Edit Brother Profile</h2>
@@ -132,11 +206,11 @@ export default function EditProfileForm({
       <select
         id="year"
         name="year"
-        defaultValue={brother.year}
+        defaultValue={currentYear}
         className="rounded-md border border-gray-300 p-2 mb-4 focus:outline-none focus:ring-2 focus:ring-brandRed"
         required
       >
-        {validYears.map((year) => (
+        {years.map((year) => (
           <option key={year} value={year}>
             {year}
           </option>
@@ -190,7 +264,7 @@ export default function EditProfileForm({
         id="birthday"
         type="date"
         name="birthday"
-        defaultValue={brother.birthday}
+        defaultValue={toDateInputValue(brother.birthday)}
         className="rounded-md border border-gray-300 p-2 mb-4 focus:outline-none focus:ring-2 focus:ring-brandRed"
         required
       />
@@ -267,6 +341,11 @@ export default function EditProfileForm({
       <label htmlFor="image" className="mb-2 font-semibold text-lg">
         Replace Profile Picture (no .heic or .heif files)
       </label>
+      {currentImageUrl && (
+        <p className="text-sm text-gray-500 mb-2">
+          Leave this empty to keep your current picture.
+        </p>
+      )}
       <input
         id="image"
         type="file"
@@ -277,26 +356,36 @@ export default function EditProfileForm({
       />
       {imageError && <p className="text-sm text-red-500 mb-4">{imageError}</p>}
 
-      {imagePreview && (
-        <Image
-          src={imagePreview}
-          width={128} // Explicitly set width
-          height={128} // Explicitly set height
-          alt="Image Preview"
-          className="mt-2 mb-4 object-cover rounded-md"
-        />
+      {previewUrl && (
+        <div className="mt-2 mb-4">
+          <p className="text-sm font-semibold mb-1">
+            {imagePreview ? "New picture" : "Current picture"}
+          </p>
+          <Image
+            src={previewUrl}
+            width={128} // Explicitly set width
+            height={128} // Explicitly set height
+            alt={imagePreview ? "New profile picture preview" : "Current profile picture"}
+            className="object-cover rounded-md w-32 h-32"
+          />
+        </div>
       )}
 
       {/* Submit Button */}
       <button
         type="submit"
-        disabled={!!imageError}
+        disabled={isSaveDisabled}
         className={`bg-brandRed text-white py-2 rounded-md font-semibold hover:bg-black transition-colors ${
-          imageError ? "opacity-50 cursor-not-allowed" : ""
+          isSaveDisabled ? "opacity-50 cursor-not-allowed" : ""
         }`}
       >
         Update Profile
       </button>
+      {isInteractive && !isDirty && !imageError && (
+        <p className="text-sm text-gray-500 mt-2">
+          Edit a field to enable saving.
+        </p>
+      )}
 
       {/* Error Message Section */}
       <div

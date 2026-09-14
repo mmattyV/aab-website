@@ -39,7 +39,7 @@ export async function fetchBrotherById(
              brother_name,
              house,
              year,
-             birthday,
+             TO_CHAR(birthday, 'YYYY-MM-DD') AS birthday,
              location,
              phone,
              tagline,
