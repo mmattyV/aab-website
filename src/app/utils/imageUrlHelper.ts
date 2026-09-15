@@ -59,21 +59,50 @@ export function getImageUrl(imageUrlField: string, size: 'thumbnail' | 'medium' 
 }
 
 /**
- * Every distinct blob URL stored in an `image_url` field.
+ * Only blobs we actually own may be passed to the blob delete API. Local paths
+ * such as "/profile-image.jpg" and placeholder URLs must never reach it.
  *
- * Use this before dropping a profile's picture — a legacy field holds one URL
- * while a current one holds three, and both have to be cleaned up.
+ * @param url - Candidate URL
+ * @returns True if this is a Vercel Blob URL we can safely delete
+ */
+export function isBlobUrl(url: unknown): url is string {
+  if (typeof url !== "string" || url.length === 0) return false;
+  try {
+    const { protocol, hostname } = new URL(url);
+    return protocol === "https:" && hostname.endsWith(".blob.vercel-storage.com");
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Pull every stored URL out of an image_url value, handling both the JSON
+ * multi-size format and the legacy single-URL format.
+ *
+ * Unlike parseImageUrl this does not fall back to duplicating a single URL
+ * across all three sizes -- callers use it to decide what to delete, so it
+ * returns exactly what is stored and nothing more.
  *
  * @param imageUrlField - The image_url value from database
- * @returns Unique URLs to delete, or an empty array when nothing is stored
+ * @returns Every distinct URL referenced by the field
  */
-export function collectImageUrls(
+export function extractImageUrls(
   imageUrlField: string | null | undefined
 ): string[] {
-  if (!imageUrlField) return [];
+  if (typeof imageUrlField !== "string") return [];
+  const trimmed = imageUrlField.trim();
+  if (!trimmed) return [];
 
-  const urls = parseImageUrl(imageUrlField);
-  return Array.from(
-    new Set([urls.thumbnail, urls.medium, urls.full])
-  ).filter(Boolean);
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed && typeof parsed === "object") {
+      return [parsed.thumbnail, parsed.medium, parsed.full].filter(
+        (url): url is string => typeof url === "string" && url.length > 0
+      );
+    }
+  } catch {
+    // Not JSON -- fall through and treat it as a legacy single URL.
+  }
+
+  return [trimmed];
 }

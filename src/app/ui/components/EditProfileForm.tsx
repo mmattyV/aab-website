@@ -7,8 +7,14 @@ import { ExclamationCircleIcon } from "@heroicons/react/24/outline";
 import { useState } from "react";
 import Image from "next/image";
 import { BROTHER_POSITIONS } from "@/app/lib/positions";
+import { getGraduationYearOptions } from "@/app/lib/graduation-years";
 import { getImageUrl } from "@/app/utils/imageUrlHelper";
 import { toDateInputValue } from "@/app/utils/dateHelper";
+import {
+  prepareImageForUpload,
+  setInputFile,
+  ImagePrepError,
+} from "@/app/utils/prepareImage";
 
 export default function EditProfileForm({
   brother,
@@ -33,6 +39,7 @@ export default function EditProfileForm({
 
   const [imageError, setImageError] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [isPreparingImage, setIsPreparingImage] = useState(false);
 
   const formRef = useRef<HTMLFormElement>(null);
   const [isDirty, setIsDirty] = useState(false);
@@ -86,62 +93,51 @@ export default function EditProfileForm({
     : null;
   const previewUrl = imagePreview ?? currentImageUrl;
 
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Downscale (and convert HEIC) in the browser, then put the result back into
+  // the input so the form submits the small JPEG rather than the original.
+  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     setImageError(null);
-    const file = e.target.files?.[0];
-    if (file) {
-      // Check file size (5MB limit)
-      const maxSize = 5 * 1024 * 1024; // 5MB in bytes
-      if (file.size > maxSize) {
-        setImageError("Image must be under 5MB");
-        e.target.value = ""; // Reset the input
-        setImagePreview(null); // Fall back to the current picture
-        return;
-      }
+    const input = e.target;
+    const file = input.files?.[0];
 
-      const allowedExtensions = ["jpeg", "jpg", "png"];
-      const allowedMimeTypes = ["image/jpeg", "image/png"];
-
-      const extension = file.name.split(".").pop()?.toLowerCase();
-      const isValidExtension =
-        extension && allowedExtensions.includes(extension);
-      const isValidMimeType = allowedMimeTypes.includes(file.type);
-
-      if (!isValidExtension || !isValidMimeType) {
-        setImageError("Only JPEG, JPG, and PNG files are allowed.");
-        e.target.value = ""; // Reset the input
-        setImagePreview(null); // Fall back to the current picture
-        return;
-      }
-      if (isValidExtension && isValidMimeType) {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          setImagePreview(reader.result as string);
-        };
-        reader.readAsDataURL(file);
-      }
-    } else {
+    if (!file) {
       setImagePreview(null); // Selection cleared — show the current picture
+      recomputeDirty();
+      return;
     }
-    recomputeDirty();
+
+    setIsPreparingImage(true);
+    try {
+      const prepared = await prepareImageForUpload(file);
+      setInputFile(input, prepared.file);
+      setImagePreview(prepared.previewUrl);
+    } catch (error) {
+      setImageError(
+        error instanceof ImagePrepError
+          ? error.message
+          : "Could not process that image."
+      );
+      input.value = ""; // Reset the input
+      setImagePreview(null); // Fall back to the current picture
+    } finally {
+      setIsPreparingImage(false);
+      recomputeDirty();
+    }
   };
 
   // Constants for dropdown lists. The stored value is folded in so an older
   // year or a retired position still prefills instead of silently resetting
   // to whichever option happens to be first.
   const currentYear = brother.year ? String(brother.year) : "";
-  const validYears = ["2028", "2027", "2026", "2025"];
-  const years =
-    currentYear && !validYears.includes(currentYear)
-      ? [...validYears, currentYear]
-      : validYears;
+  const years = getGraduationYearOptions(currentYear);
   const positions: string[] = BROTHER_POSITIONS.includes(
     brother.position as (typeof BROTHER_POSITIONS)[number]
   )
     ? [...BROTHER_POSITIONS]
     : [...BROTHER_POSITIONS, brother.position].filter(Boolean);
 
-  const isSaveDisabled = !!imageError || (isInteractive && !isDirty);
+  const isSaveDisabled =
+    !!imageError || isPreparingImage || (isInteractive && !isDirty);
 
   return (
     <form
@@ -367,7 +363,7 @@ export default function EditProfileForm({
 
       {/* Replace or Upload New Profile Picture */}
       <label htmlFor="image" className="mb-2 font-semibold text-lg">
-        Replace Profile Picture (no .heic or .heif files)
+        Replace Profile Picture
       </label>
       {currentImageUrl && (
         <p className="text-sm text-gray-500 mb-2">
@@ -378,11 +374,14 @@ export default function EditProfileForm({
         id="image"
         type="file"
         name="image"
-        accept=".jpeg,.jpg,.png,image/jpeg,image/png"
+        accept=".jpeg,.jpg,.png,.heic,.heif,image/jpeg,image/png,image/heic,image/heif"
         className="rounded-md border border-gray-300 p-2 mb-2 focus:outline-none focus:ring-2 focus:ring-brandRed"
         onChange={handleImageChange}
       />
       {imageError && <p className="text-sm text-red-500 mb-4">{imageError}</p>}
+      {isPreparingImage && (
+        <p className="text-sm text-gray-500 mb-4">Preparing image…</p>
+      )}
 
       {previewUrl && (
         <div className="mt-2 mb-4">
@@ -409,7 +408,7 @@ export default function EditProfileForm({
       >
         Update Profile
       </button>
-      {isInteractive && !isDirty && !imageError && (
+      {isInteractive && !isDirty && !imageError && !isPreparingImage && (
         <p className="text-sm text-gray-500 mt-2">
           Edit a field to enable saving.
         </p>

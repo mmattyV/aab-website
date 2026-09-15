@@ -5,6 +5,12 @@ import { createRecruitAccount, State } from "@/app/lib/actions";
 import { ExclamationCircleIcon } from "@heroicons/react/24/outline";
 import { useState } from "react";
 import Image from "next/image";
+import {
+  prepareImageForUpload,
+  setInputFile,
+  ImagePrepError,
+} from "@/app/utils/prepareImage";
+import { getValidGraduationYears } from "@/app/lib/graduation-years";
 
 export default function RecruitSignUpPage() {
   const initialState: State = { message: null, errors: {} };
@@ -15,39 +21,35 @@ export default function RecruitSignUpPage() {
 
   const [imageError, setImageError] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [isPreparingImage, setIsPreparingImage] = useState(false);
 
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Downscale (and convert HEIC) in the browser, then put the result back into
+  // the input so the form submits the small JPEG rather than the original.
+  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     setImageError(null);
-    const file = e.target.files?.[0];
-    if (file) {
-      // Check file size (5MB limit)
-      const maxSize = 5 * 1024 * 1024; // 5MB in bytes
-      if (file.size > maxSize) {
-        setImageError("Image must be under 5MB");
-        e.target.value = ""; // Reset the input
-        return;
-      }
+    const input = e.target;
+    const file = input.files?.[0];
 
-      const allowedExtensions = ["jpeg", "jpg", "png"];
-      const allowedMimeTypes = ["image/jpeg", "image/png"];
+    if (!file) {
+      setImagePreview(null);
+      return;
+    }
 
-      const extension = file.name.split(".").pop()?.toLowerCase();
-      const isValidExtension =
-        extension && allowedExtensions.includes(extension);
-      const isValidMimeType = allowedMimeTypes.includes(file.type);
-
-      if (!isValidExtension || !isValidMimeType) {
-        setImageError("Only JPEG, JPG, and PNG files are allowed.");
-        e.target.value = ""; // Reset the input
-        return;
-      }
-      if (isValidExtension && isValidMimeType) {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          setImagePreview(reader.result as string);
-        };
-        reader.readAsDataURL(file);
-      }
+    setIsPreparingImage(true);
+    try {
+      const prepared = await prepareImageForUpload(file);
+      setInputFile(input, prepared.file);
+      setImagePreview(prepared.previewUrl);
+    } catch (error) {
+      setImageError(
+        error instanceof ImagePrepError
+          ? error.message
+          : "Could not process that image."
+      );
+      input.value = ""; // Reset the input
+      setImagePreview(null);
+    } finally {
+      setIsPreparingImage(false);
     }
   };
 
@@ -119,7 +121,7 @@ export default function RecruitSignUpPage() {
               className="rounded-md border border-gray-300 p-2 mb-4 focus:outline-none focus:ring-2 focus:ring-brandRed"
               required
             >
-              {["2029","2028", "2027", "2026"].map((yearVal) => (
+              {getValidGraduationYears().map((yearVal) => (
                 <option key={yearVal} value={yearVal}>
                   {yearVal}
                 </option>
@@ -154,19 +156,22 @@ export default function RecruitSignUpPage() {
 
             {/* Image Upload */}
             <label htmlFor="image" className="mb-2 font-semibold text-lg">
-              Upload Profile Picture (no .heic or .heif files)
+              Upload Profile Picture
             </label>
             <input
               id="image"
               type="file"
               name="image"
-              accept=".jpeg,.jpg,.png,image/jpeg,image/png"
+              accept=".jpeg,.jpg,.png,.heic,.heif,image/jpeg,image/png,image/heic,image/heif"
               className="rounded-md border border-gray-300 p-2 mb-2 focus:outline-none focus:ring-2 focus:ring-brandRed"
               required
               onChange={handleImageChange}
             />
             {imageError && (
               <p className="text-sm text-red-500 mb-4">{imageError}</p>
+            )}
+            {isPreparingImage && (
+              <p className="text-sm text-gray-400 mb-4">Preparing image…</p>
             )}
 
             {imagePreview && (
@@ -182,9 +187,11 @@ export default function RecruitSignUpPage() {
             {/* Submit Button */}
             <button
               type="submit"
-              disabled={!!imageError}
+              disabled={!!imageError || isPreparingImage}
               className={`bg-brandRed text-white py-2 rounded-md font-semibold hover:bg-black transition-colors ${
-                imageError ? "opacity-50 cursor-not-allowed" : ""
+                imageError || isPreparingImage
+                  ? "opacity-50 cursor-not-allowed"
+                  : ""
               }`}
             >
               Sign Up as a Recruit

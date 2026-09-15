@@ -1,4 +1,6 @@
 // This file contains type definitions for our data
+import type { StaticImageData } from "next/image";
+
 export type Brother = {
   id: string;
   first_name: string;
@@ -105,7 +107,7 @@ export type RecruitCommentProps = {
 export interface PillarProps {
   title: string;
   description: string;
-  backgroundImage: string;
+  backgroundImage: StaticImageData;
 }
 
 export interface MenuButtonProps {
@@ -132,7 +134,7 @@ export interface HeaderProps {
 }
 
 export interface HeroProps {
-  backgroundImage: string;
+  backgroundImage: StaticImageData;
 }
 
 export interface MissionProps {
@@ -161,11 +163,17 @@ export interface RecruitCardProps {
 export interface BrotherYearSectionProps {
   year: string;
   brothers: BrotherCardProps[];
+  // How many of this section's cards are still within the page-wide preload
+  // budget. Counted across sections so we don't preload a row per year.
+  priorityCount?: number;
 }
 
 export interface RecruitYearSectionProps {
   year: string;
   recruits: RecruitCardProps[];
+  // How many of this section's cards are still within the page-wide preload
+  // budget. Counted across sections so we don't preload a row per year.
+  priorityCount?: number;
 }
 
 export interface BackToButtonProps {

@@ -7,7 +7,6 @@ import { sql, db } from "@vercel/postgres";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { randomUUID } from "crypto";
-import { put, del } from "@vercel/blob";
 import {
   BrotherSchema,
   RecruitSchema,
@@ -16,12 +15,12 @@ import {
 } from "./zod-schemas";
 import bcrypt from "bcrypt";
 import { validateImageFile } from "@/app/utils/validateImage";
-import { sanitizeFilename } from "@/app/utils/sanitizeFilename";
-import { generateImageVariants } from "@/app/utils/compressImage";
 import {
-  serializeImageUrls,
-  collectImageUrls,
-} from "@/app/utils/imageUrlHelper";
+  uploadProfileImageVariants,
+  deleteImageUrls,
+  extractImageUrls,
+  type UploadedProfileImage,
+} from "@/app/lib/blob-images";
 import { getSessionBrother, getRecruitsAccess } from "@/app/lib/board-access";
 import { writeRecruitsEnabled } from "@/app/lib/site-flags";
 import { isAssignablePosition } from "@/app/lib/positions";
@@ -29,62 +28,6 @@ import type {
   DashboardSelection,
   DeleteProfilesResult,
 } from "@/app/lib/definitions";
-
-// ============= PROFILE IMAGE HELPERS =================
-
-/**
- * Upload thumbnail, medium and full variants of a profile picture.
- *
- * @returns the serialized value to store in `image_url`
- */
-async function uploadProfileImage(
-  imageFile: File,
-  prefix: "brother" | "recruit"
-): Promise<string> {
-  const variants = await generateImageVariants(imageFile);
-  const sanitizedFilename = sanitizeFilename(imageFile.name);
-  const baseFileName = `${prefix}-profile-${randomUUID()}-${sanitizedFilename}`;
-
-  // Upload all three sizes in parallel
-  const [thumbResult, mediumResult, fullResult] = await Promise.all([
-    put(`${baseFileName}-thumb.jpg`, variants.thumbnail, {
-      access: "public",
-      contentType: "image/jpeg",
-    }),
-    put(`${baseFileName}-medium.jpg`, variants.medium, {
-      access: "public",
-      contentType: "image/jpeg",
-    }),
-    put(`${baseFileName}-full.jpg`, variants.full, {
-      access: "public",
-      contentType: "image/jpeg",
-    }),
-  ]);
-
-  return serializeImageUrls({
-    thumbnail: thumbResult.url,
-    medium: mediumResult.url,
-    full: fullResult.url,
-  });
-}
-
-/**
- * Drop blob images nothing points at any more.
- *
- * Best effort by design: the database row is already updated or gone, and the
- * `cleanup-images` script sweeps up anything a failed delete leaves behind.
- */
-async function deleteBlobImages(urls: string[]): Promise<void> {
-  await Promise.all(
-    urls.map(async (url) => {
-      try {
-        await del(url);
-      } catch (error) {
-        console.error(`Failed to delete image: ${url}`, error);
-      }
-    })
-  );
-}
 
 // ============= AUTH / SIGNIN / SIGNOUT =================
 export async function authenticate(
@@ -350,10 +293,17 @@ export async function createBrotherAccount(
   const hashedPassword = await bcrypt.hash(parsed.data.password, 10);
 
   // 5) Generate image variants and upload to Vercel Blob
+  let uploadedImage: UploadedProfileImage;
   try {
-    const url = await uploadProfileImage(imageFile, "brother");
+    uploadedImage = await uploadProfileImageVariants(imageFile, "brother-profile");
+  } catch (error) {
+    console.error("Upload Error:", error);
+    return { message: "Failed to upload profile photo." };
+  }
 
-    // 6) Insert into DB
+  // 6) Insert into DB. If this fails the blobs we just wrote have nothing
+  //    pointing at them, so remove them before returning.
+  try {
     const brotherId = randomUUID();
     await sql`
       INSERT INTO brothers (
@@ -392,11 +342,12 @@ export async function createBrotherAccount(
         ${parsed.data.position},
         ${parsed.data.bio},
         ${parsed.data.instagram},
-        ${url}
+        ${uploadedImage.serialized}
       )
     `;
   } catch (error) {
-    console.error("Database or Upload Error:", error);
+    console.error("Database Error:", error);
+    await deleteImageUrls(uploadedImage.urls);
     return { message: "Failed to create brother account." };
   }
 
@@ -437,10 +388,18 @@ export async function createRecruitAccount(
     return { message: "No image file was provided." };
   }
 
+  // Generate image variants and upload
+  let uploadedImage: UploadedProfileImage;
   try {
-    const url = await uploadProfileImage(imageFile, "recruit");
+    uploadedImage = await uploadProfileImageVariants(imageFile, "recruit-profile");
+  } catch (error) {
+    console.error("Upload Error:", error);
+    return { message: "Failed to upload profile photo." };
+  }
 
-    // Insert recruit
+  // Insert recruit. A duplicate email (23505) is an expected outcome here, so
+  // the blobs we just uploaded have to be cleaned up on every failure path.
+  try {
     const recruitId = randomUUID();
     await sql`
       INSERT INTO recruits (
@@ -461,11 +420,12 @@ export async function createRecruitAccount(
         ${parsed.data.year},
         ${parsed.data.phone},
         ${parsed.data.room},
-        ${url}
+        ${uploadedImage.serialized}
       )
     `;
   } catch (error: unknown) {
     console.error("Recruit DB Error:", error);
+    await deleteImageUrls(uploadedImage.urls);
 
     if (error instanceof Error && "code" in error && error.code === "23505") {
       return {
@@ -586,8 +546,10 @@ export async function updateBrotherProfile(
     return { message: "You are not allowed to edit this profile." };
   }
 
+  const imageFile = parsed.data.image;
+
   // ✅ Load the row once — used to spot a no-op submit and to reuse/replace images
-  let existingRow: Record<string, unknown> | undefined;
+  let existingRow: Record<string, unknown>;
   try {
     const existing = await sql`
       SELECT first_name, last_name, personal_email, school_email, year, phone,
@@ -596,15 +558,14 @@ export async function updateBrotherProfile(
       FROM brothers
       WHERE id = ${parsed.data.brotherId}
     `;
+    if (existing.rows.length === 0) {
+      return { message: "Profile not found." };
+    }
     existingRow = existing.rows[0];
   } catch (error) {
     console.error("Error fetching existing brother:", error);
-  }
-
-  // ✅ Without the stored row there is no way to tell a real edit from a
-  // no-op, and saving would blank out the profile picture.
-  if (!existingRow) {
-    return { message: "Could not load this profile. Please try again." };
+    // Without the current row the UPDATE below would blank out image_url.
+    return { message: "Database Error: Failed to load current profile." };
   }
 
   // ✅ Positions are a board privilege, and only the known list is assignable —
@@ -619,8 +580,6 @@ export async function updateBrotherProfile(
     }
   }
 
-  const imageFile = parsed.data.image;
-
   // ✅ Nothing to save: no new photo and every field matches what's stored.
   // Say so plainly instead of failing validation on an untouched form.
   if (
@@ -630,30 +589,30 @@ export async function updateBrotherProfile(
     return { message: "No changes to save. Update a field first." };
   }
 
-  let newImageUrl: string | undefined;
+  let newImageUrl: string | null = (existingRow.image_url as string | null) ?? null;
+  let uploadedImage: UploadedProfileImage | null = null;
 
   if (imageFile) {
-    // ✅ Old image URL(s) come from the row already fetched above
-    const oldImageUrls = collectImageUrls(existingRow.image_url as string);
-
     try {
-      newImageUrl = await uploadProfileImage(imageFile, "brother");
-
-      // ✅ Drop the replaced variants, without holding up the save
-      void deleteBlobImages(oldImageUrls);
+      uploadedImage = await uploadProfileImageVariants(imageFile, "brother-profile");
     } catch (error) {
       console.error("Image Upload Error:", error);
       return { message: "Failed to upload new photo." };
     }
-  } else {
-    // ✅ If no new image is uploaded, keep the existing one
-    newImageUrl = existingRow.image_url as string | undefined;
+    newImageUrl = uploadedImage.serialized;
   }
 
   // ✅ Update the database
+  //
+  // The image_url being replaced is read back from this statement rather than
+  // from the SELECT above. `FOR UPDATE` serializes concurrent edits of the same
+  // profile, so each request sees the value it actually superseded: without it,
+  // two simultaneous edits both read the original URL, both delete it, and the
+  // losing request's upload is left in storage with nothing referencing it.
+  let supersededImageUrls: string[] = [];
   try {
-    await sql`
-      UPDATE brothers
+    const updated = await sql`
+      UPDATE brothers AS b
       SET
         first_name = ${parsed.data.first_name},
         last_name = ${parsed.data.last_name},
@@ -670,11 +629,45 @@ export async function updateBrotherProfile(
         bio = ${parsed.data.bio},
         instagram = ${parsed.data.instagram || null},
         image_url = ${newImageUrl} -- ✅ Keeps old image if no new one is uploaded
-      WHERE id = ${parsed.data.brotherId}
+      FROM (
+        SELECT image_url AS old_url
+        FROM brothers
+        WHERE id = ${parsed.data.brotherId}
+        FOR UPDATE
+      ) AS prev
+      WHERE b.id = ${parsed.data.brotherId}
+      RETURNING prev.old_url
     `;
+
+    if (updated.rows.length === 0) {
+      // Row disappeared between the read and the write.
+      if (uploadedImage) {
+        await deleteImageUrls(uploadedImage.urls);
+      }
+      return { message: "Profile not found." };
+    }
+
+    if (uploadedImage) {
+      const replacedUrl = updated.rows[0].old_url as string | null;
+      // Never delete a URL the new image also uses.
+      supersededImageUrls = extractImageUrls(replacedUrl).filter(
+        (url) => !uploadedImage!.urls.includes(url)
+      );
+    }
   } catch (error) {
     console.error("DB Error:", error);
+    // The row still points at the old image, so discard what we just uploaded.
+    if (uploadedImage) {
+      await deleteImageUrls(uploadedImage.urls);
+    }
     return { message: "Database Error: Failed to update profile." };
+  }
+
+  // The new URL is committed, so the previous variants are now unreferenced.
+  // Awaited on purpose -- a detached promise can be killed when the serverless
+  // function freezes after the response, which is what orphaned them before.
+  if (supersededImageUrls.length > 0) {
+    await deleteImageUrls(supersededImageUrls);
   }
 
   // ✅ Revalidate and Redirect
@@ -929,27 +922,26 @@ export async function updateRecruitProfile(
     return { message: "No changes to save. Update a field first." };
   }
 
-  let newImageUrl: string | undefined;
+  let newImageUrl: string | null = (existingRow.image_url as string | null) ?? null;
+  let uploadedImage: UploadedProfileImage | null = null;
 
   if (imageFile) {
-    const oldImageUrls = collectImageUrls(existingRow.image_url as string);
-
     try {
-      newImageUrl = await uploadProfileImage(imageFile, "recruit");
-
-      // Drop the replaced variants, without holding up the save
-      void deleteBlobImages(oldImageUrls);
+      uploadedImage = await uploadProfileImageVariants(imageFile, "recruit-profile");
     } catch (error) {
       console.error("Image Upload Error:", error);
       return { message: "Failed to upload new photo." };
     }
-  } else {
-    newImageUrl = existingRow.image_url as string | undefined;
+    newImageUrl = uploadedImage.serialized;
   }
 
+  // Mirrors updateBrotherProfile: the replaced image_url is read back from the
+  // UPDATE under FOR UPDATE, so two simultaneous edits can't both delete the
+  // same old URL and orphan the loser's upload.
+  let supersededImageUrls: string[] = [];
   try {
-    await sql`
-      UPDATE recruits
+    const updated = await sql`
+      UPDATE recruits AS r
       SET
         first_name = ${parsed.data.first_name},
         last_name = ${parsed.data.last_name},
@@ -958,16 +950,48 @@ export async function updateRecruitProfile(
         phone = ${parsed.data.phone},
         room = ${parsed.data.room},
         image_url = ${newImageUrl}
-      WHERE id = ${parsed.data.recruitId}
+      FROM (
+        SELECT image_url AS old_url
+        FROM recruits
+        WHERE id = ${parsed.data.recruitId}
+        FOR UPDATE
+      ) AS prev
+      WHERE r.id = ${parsed.data.recruitId}
+      RETURNING prev.old_url
     `;
+
+    if (updated.rows.length === 0) {
+      // Row disappeared between the read and the write.
+      if (uploadedImage) {
+        await deleteImageUrls(uploadedImage.urls);
+      }
+      return { message: "Recruit not found." };
+    }
+
+    if (uploadedImage) {
+      const replacedUrl = updated.rows[0].old_url as string | null;
+      // Never delete a URL the new image also uses.
+      supersededImageUrls = extractImageUrls(replacedUrl).filter(
+        (url) => !uploadedImage!.urls.includes(url)
+      );
+    }
   } catch (error: unknown) {
     console.error("DB Error:", error);
+    // The row still points at the old image, so discard what we just uploaded.
+    if (uploadedImage) {
+      await deleteImageUrls(uploadedImage.urls);
+    }
 
     if (error instanceof Error && "code" in error && error.code === "23505") {
       return { message: "Another recruit already uses this email." };
     }
 
     return { message: "Database Error: Failed to update recruit." };
+  }
+
+  // The new URL is committed, so the previous variants are now unreferenced.
+  if (supersededImageUrls.length > 0) {
+    await deleteImageUrls(supersededImageUrls);
   }
 
   revalidatePath("/recruits");
@@ -1091,11 +1115,12 @@ export async function deleteProfiles(
     client.release();
   }
 
-  // The rows are gone; clean up their pictures. Awaited so failures are
-  // logged, but never fatal — `cleanup-images` catches whatever is left.
-  await deleteBlobImages(
+  // The rows are gone; clean up their pictures. Awaited rather than detached
+  // so the serverless function can't freeze before the deletes finish, which
+  // is what orphaned blobs before; failures are logged, never fatal.
+  await deleteImageUrls(
     [...deletedBrothers, ...deletedRecruits].flatMap((row) =>
-      collectImageUrls(row.image_url)
+      extractImageUrls(row.image_url)
     )
   );
 

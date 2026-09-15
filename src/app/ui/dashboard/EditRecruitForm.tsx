@@ -13,9 +13,7 @@ import { ExclamationCircleIcon } from "@heroicons/react/24/outline";
 import { updateRecruitProfile, State } from "@/app/lib/actions";
 import { Recruit } from "@/app/lib/definitions";
 import { getImageUrl } from "@/app/utils/imageUrlHelper";
-
-/** Classes offered for a recruit, newest first. */
-const VALID_YEARS = ["2029", "2028", "2027", "2026"];
+import { getGraduationYearOptions } from "@/app/lib/graduation-years";
 
 export default function EditRecruitForm({ recruit }: { recruit: Recruit }) {
   const initialState: State = { message: null, errors: {} };
@@ -112,10 +110,7 @@ export default function EditRecruitForm({ recruit }: { recruit: Recruit }) {
   // The stored year is folded in so a class that's aged out of the list still
   // prefills instead of silently resetting to whichever option comes first.
   const currentYear = recruit.year ? String(recruit.year) : "";
-  const years =
-    currentYear && !VALID_YEARS.includes(currentYear)
-      ? [...VALID_YEARS, currentYear]
-      : VALID_YEARS;
+  const years = getGraduationYearOptions(currentYear);
 
   const isSaveDisabled = !!imageError || (isInteractive && !isDirty);
 
