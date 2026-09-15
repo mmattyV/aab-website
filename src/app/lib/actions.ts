@@ -3,11 +3,16 @@
 import { signIn, signOut } from "@/auth";
 import { AuthError } from "next-auth";
 import { z } from "zod";
-import { sql } from "@vercel/postgres";
+import { sql, db } from "@vercel/postgres";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { randomUUID } from "crypto";
-import { BrotherSchema, RecruitSchema, EditBrotherSchema } from "./zod-schemas";
+import {
+  BrotherSchema,
+  RecruitSchema,
+  EditBrotherSchema,
+  EditRecruitSchema,
+} from "./zod-schemas";
 import bcrypt from "bcrypt";
 import { validateImageFile } from "@/app/utils/validateImage";
 import {
@@ -16,6 +21,19 @@ import {
   extractImageUrls,
   type UploadedProfileImage,
 } from "@/app/lib/blob-images";
+import { getSessionBrother, getRecruitsAccess } from "@/app/lib/board-access";
+import {
+  writeRecruitsEnabled,
+  fetchRecruitsEnabled,
+} from "@/app/lib/site-flags";
+import {
+  isAssignablePosition,
+  NEW_BROTHER_POSITION,
+} from "@/app/lib/positions";
+import type {
+  DashboardSelection,
+  DeleteProfilesResult,
+} from "@/app/lib/definitions";
 
 // ============= AUTH / SIGNIN / SIGNOUT =================
 export async function authenticate(
@@ -55,6 +73,33 @@ export type State = {
   message?: string | null;
 };
 
+/**
+ * Check that the signed-in brother may write this comment.
+ *
+ * `brotherId` arrives in the form body, so it is treated as a claim rather
+ * than a fact: a comment can only ever be written as yourself, and only while
+ * you can reach the recruits section at all.
+ *
+ * @returns the author's id, or the `State` to hand straight back to the form
+ */
+async function requireCommentAuthor(
+  claimedBrotherId: string
+): Promise<{ brotherId: string } | State> {
+  const access = await getRecruitsAccess();
+
+  if (access.status === "signed-out") {
+    return { message: "You must be signed in to comment." };
+  }
+  if (access.status === "closed") {
+    return { message: "Recruits are closed right now." };
+  }
+  if (access.brother.id !== claimedBrotherId) {
+    return { message: "You can only comment as yourself." };
+  }
+
+  return { brotherId: access.brother.id };
+}
+
 // ============= CREATE COMMENT =============
 export async function createComment(prevState: State, formData: FormData) {
   const rawFields = {
@@ -71,6 +116,9 @@ export async function createComment(prevState: State, formData: FormData) {
       message: "Missing Fields. Failed to Submit Comment.",
     };
   }
+
+  const author = await requireCommentAuthor(validatedFields.data.brotherId);
+  if ("message" in author) return author;
 
   const { recruitId, brotherId, comment, redFlag } = validatedFields.data;
 
@@ -146,6 +194,9 @@ export async function upsertComment(prevState: State, formData: FormData) {
     };
   }
 
+  const author = await requireCommentAuthor(validatedFields.data.brotherId);
+  if ("message" in author) return author;
+
   const { recruitId, brotherId, comment, redFlag } = validatedFields.data;
   const commentId = rawFields.commentId || randomUUID();
   const finalRedFlag = redFlag || "None";
@@ -211,7 +262,6 @@ export async function createBrotherAccount(
     birthday: formData.get("birthday")?.toString() || "",
     location: formData.get("location")?.toString() || "",
     tagline: formData.get("tagline")?.toString() || "",
-    position: formData.get("position")?.toString() || "",
     bio: formData.get("bio")?.toString() || "",
     instagram: formData.get("instagram")?.toString() || "",
     image: formData.get("image") as File | null,
@@ -294,7 +344,7 @@ export async function createBrotherAccount(
         ${parsed.data.birthday},
         ${parsed.data.location},
         ${parsed.data.tagline},
-        ${parsed.data.position},
+        ${NEW_BROTHER_POSITION},
         ${parsed.data.bio},
         ${parsed.data.instagram},
         ${uploadedImage.serialized}
@@ -330,6 +380,14 @@ export async function createRecruitAccount(
     return {
       errors: parsed.error.flatten().fieldErrors,
       message: "Validation failed. Please check your inputs.",
+    };
+  }
+
+  // Re-checked here, not just on the page: the form is public, so a stale tab
+  // or a hand-rolled POST must not slip a signup in after the board closed it.
+  if (!(await fetchRecruitsEnabled())) {
+    return {
+      message: "Recruit signups are closed right now.",
     };
   }
 
@@ -416,24 +474,25 @@ const EDITABLE_PROFILE_FIELDS = [
 ] as const;
 
 /**
- * Whether a submitted profile differs from what's stored.
+ * Whether any of `fields` differs between a submitted form and the stored row.
  *
- * Both sides are compared as trimmed strings: the form sends everything as
+ * Both sides are compared as trimmed strings: a form sends everything as
  * text, while the database hands back numbers for `year` and NULL for an
  * empty `instagram`.
  */
-function hasProfileChanges(
+function hasFieldChanges(
+  fields: readonly string[],
   submitted: Record<string, unknown>,
   stored: Record<string, unknown>
 ): boolean {
   const normalize = (value: unknown) =>
     value === null || value === undefined ? "" : String(value).trim();
 
-  return EDITABLE_PROFILE_FIELDS.some((field) => {
+  return fields.some((field) => {
     const submittedValue = normalize(submitted[field]);
     const storedValue = normalize(stored[field]);
     // Emails are lowercased on the way in, so compare them case-insensitively
-    if (field === "personal_email" || field === "school_email") {
+    if (field.endsWith("email")) {
       return submittedValue.toLowerCase() !== storedValue.toLowerCase();
     }
     return submittedValue !== storedValue;
@@ -473,6 +532,12 @@ export async function updateBrotherProfile(
     })(),
   };
 
+  // ✅ Dashboard edits return to the dashboard, a brother editing their own
+  // profile returns to /brothers. Only those two destinations exist, so a
+  // tampered field can't turn this into an open redirect.
+  const returnsToDashboard =
+    formData.get("returnTo")?.toString() === "dashboard";
+
   // ✅ Validate with Zod
   const parsed = EditBrotherSchema.safeParse(rawFields);
   if (!parsed.success) {
@@ -481,6 +546,17 @@ export async function updateBrotherProfile(
       errors: parsed.error.flatten().fieldErrors,
       message: "Validation failed.",
     };
+  }
+
+  // ✅ You may edit your own profile; editing anyone else's is a board action.
+  // Re-checked here so a hand-rolled request can't skip the dashboard's gate.
+  const actor = await getSessionBrother();
+  if (!actor) {
+    return { message: "You must be signed in to edit a profile." };
+  }
+  const isSelf = actor.id === parsed.data.brotherId;
+  if (!isSelf && !actor.isBoardMember) {
+    return { message: "You are not allowed to edit this profile." };
   }
 
   const imageFile = parsed.data.image;
@@ -505,9 +581,24 @@ export async function updateBrotherProfile(
     return { message: "Database Error: Failed to load current profile." };
   }
 
+  // ✅ Positions are a board privilege, and only the known list is assignable —
+  // a profile may keep a legacy position, but nobody can invent a new one.
+  const storedPosition = (existingRow.position as string | null) ?? "";
+  if (parsed.data.position !== storedPosition) {
+    if (!actor.isBoardMember) {
+      return { message: "Only board members can change a position." };
+    }
+    if (!isAssignablePosition(parsed.data.position, storedPosition)) {
+      return { message: "That is not a valid position." };
+    }
+  }
+
   // ✅ Nothing to save: no new photo and every field matches what's stored.
   // Say so plainly instead of failing validation on an untouched form.
-  if (!imageFile && !hasProfileChanges(parsed.data, existingRow)) {
+  if (
+    !imageFile &&
+    !hasFieldChanges(EDITABLE_PROFILE_FIELDS, parsed.data, existingRow)
+  ) {
     return { message: "No changes to save. Update a field first." };
   }
 
@@ -594,7 +685,10 @@ export async function updateBrotherProfile(
 
   // ✅ Revalidate and Redirect
   revalidatePath("/brothers");
-  redirect("/brothers");
+  if (!isSelf || returnsToDashboard) {
+    revalidatePath("/dashboard");
+  }
+  redirect(returnsToDashboard ? "/dashboard" : "/brothers");
 }
 
 // ============= PASSWORD RESET ACTIONS =============
@@ -752,4 +846,356 @@ export async function resetPassword(
       message: "Failed to reset password. Please try again.",
     };
   }
+}
+
+// ============= RECRUIT MANAGEMENT =============
+
+/** Recruit fields the dashboard form submits, in the order they appear. */
+const EDITABLE_RECRUIT_FIELDS = [
+  "first_name",
+  "last_name",
+  "email",
+  "year",
+  "phone",
+  "room",
+] as const;
+
+/**
+ * Edit any recruit from the dashboard.
+ *
+ * Unlike a brother profile there is no self-service version of this form —
+ * recruits don't have accounts — so board membership is required outright.
+ */
+export async function updateRecruitProfile(
+  prevState: State,
+  formData: FormData
+) {
+  const rawFields = {
+    recruitId: formData.get("recruitId")?.toString() || "",
+    first_name: formData.get("first_name")?.toString() || "",
+    last_name: formData.get("last_name")?.toString() || "",
+    email: formData.get("email")?.toString().toLowerCase().trim() || "",
+    year: formData.get("year")?.toString() || "",
+    phone: formData.get("phone")?.toString() || "",
+    room: formData.get("room")?.toString() || "",
+    image: (() => {
+      const file = formData.get("image");
+      // An untouched file input still submits an empty File — not an upload.
+      if (
+        file instanceof File &&
+        (file.size === 0 || !file.name || file.name === "undefined")
+      ) {
+        return null;
+      }
+      return file;
+    })(),
+  };
+
+  const parsed = EditRecruitSchema.safeParse(rawFields);
+  if (!parsed.success) {
+    console.error("Validation Errors:", parsed.error.flatten().fieldErrors);
+    return {
+      errors: parsed.error.flatten().fieldErrors,
+      message: "Validation failed.",
+    };
+  }
+
+  // Re-checked here so a hand-rolled request can't skip the dashboard's gate.
+  const actor = await getSessionBrother();
+  if (!actor) {
+    return { message: "You must be signed in to edit a recruit." };
+  }
+  if (!actor.isBoardMember) {
+    return { message: "You are not allowed to edit recruits." };
+  }
+
+  let existingRow: Record<string, unknown> | undefined;
+  try {
+    const existing = await sql`
+      SELECT first_name, last_name, email, year, phone, room, image_url
+      FROM recruits
+      WHERE id = ${parsed.data.recruitId}
+    `;
+    existingRow = existing.rows[0];
+  } catch (error) {
+    console.error("Error fetching existing recruit:", error);
+  }
+
+  if (!existingRow) {
+    return { message: "Could not load this recruit. Please try again." };
+  }
+
+  const imageFile = parsed.data.image;
+
+  // Nothing to save: no new photo and every field matches what's stored.
+  if (
+    !imageFile &&
+    !hasFieldChanges(EDITABLE_RECRUIT_FIELDS, parsed.data, existingRow)
+  ) {
+    return { message: "No changes to save. Update a field first." };
+  }
+
+  let newImageUrl: string | null = (existingRow.image_url as string | null) ?? null;
+  let uploadedImage: UploadedProfileImage | null = null;
+
+  if (imageFile) {
+    try {
+      uploadedImage = await uploadProfileImageVariants(imageFile, "recruit-profile");
+    } catch (error) {
+      console.error("Image Upload Error:", error);
+      return { message: "Failed to upload new photo." };
+    }
+    newImageUrl = uploadedImage.serialized;
+  }
+
+  // Mirrors updateBrotherProfile: the replaced image_url is read back from the
+  // UPDATE under FOR UPDATE, so two simultaneous edits can't both delete the
+  // same old URL and orphan the loser's upload.
+  let supersededImageUrls: string[] = [];
+  try {
+    const updated = await sql`
+      UPDATE recruits AS r
+      SET
+        first_name = ${parsed.data.first_name},
+        last_name = ${parsed.data.last_name},
+        email = ${parsed.data.email},
+        year = ${parsed.data.year},
+        phone = ${parsed.data.phone},
+        room = ${parsed.data.room},
+        image_url = ${newImageUrl}
+      FROM (
+        SELECT image_url AS old_url
+        FROM recruits
+        WHERE id = ${parsed.data.recruitId}
+        FOR UPDATE
+      ) AS prev
+      WHERE r.id = ${parsed.data.recruitId}
+      RETURNING prev.old_url
+    `;
+
+    if (updated.rows.length === 0) {
+      // Row disappeared between the read and the write.
+      if (uploadedImage) {
+        await deleteImageUrls(uploadedImage.urls);
+      }
+      return { message: "Recruit not found." };
+    }
+
+    if (uploadedImage) {
+      const replacedUrl = updated.rows[0].old_url as string | null;
+      // Never delete a URL the new image also uses.
+      supersededImageUrls = extractImageUrls(replacedUrl).filter(
+        (url) => !uploadedImage!.urls.includes(url)
+      );
+    }
+  } catch (error: unknown) {
+    console.error("DB Error:", error);
+    // The row still points at the old image, so discard what we just uploaded.
+    if (uploadedImage) {
+      await deleteImageUrls(uploadedImage.urls);
+    }
+
+    if (error instanceof Error && "code" in error && error.code === "23505") {
+      return { message: "Another recruit already uses this email." };
+    }
+
+    return { message: "Database Error: Failed to update recruit." };
+  }
+
+  // The new URL is committed, so the previous variants are now unreferenced.
+  if (supersededImageUrls.length > 0) {
+    await deleteImageUrls(supersededImageUrls);
+  }
+
+  revalidatePath("/recruits");
+  revalidatePath(`/recruits/${parsed.data.recruitId}/details`);
+  revalidatePath("/dashboard");
+  redirect("/dashboard");
+}
+
+// ============= PROFILE DELETION =============
+
+/**
+ * Profiles picked for deletion.
+ *
+ * Ids are parsed as UUIDs so a malformed value is rejected before it reaches
+ * a query, and the two lists stay separate so no id is ever applied to the
+ * wrong table.
+ */
+const DeleteSelectionSchema = z.object({
+  brotherIds: z.array(z.string().uuid()).default([]),
+  recruitIds: z.array(z.string().uuid()).default([]),
+});
+
+/** "1 brother and 2 recruits", for the message the dashboard shows afterwards. */
+function describeCounts(brotherCount: number, recruitCount: number): string {
+  const parts: string[] = [];
+  if (brotherCount > 0) {
+    parts.push(`${brotherCount} brother${brotherCount === 1 ? "" : "s"}`);
+  }
+  if (recruitCount > 0) {
+    parts.push(`${recruitCount} recruit${recruitCount === 1 ? "" : "s"}`);
+  }
+  return parts.join(" and ");
+}
+
+/**
+ * Delete any mix of brother and recruit profiles.
+ *
+ * Backs both the per-row delete and the bulk delete so the two can't drift
+ * apart. Profiles and the recruit comments that reference them go in one
+ * transaction; the blob images follow once that has committed, since a failed
+ * image delete shouldn't undo a successful one.
+ */
+export async function deleteProfiles(
+  selection: DashboardSelection
+): Promise<DeleteProfilesResult> {
+  const failure = (message: string): DeleteProfilesResult => ({
+    status: "error",
+    message,
+    deletedBrotherIds: [],
+    deletedRecruitIds: [],
+  });
+
+  const actor = await getSessionBrother();
+  if (!actor) {
+    return failure("You must be signed in to delete profiles.");
+  }
+  if (!actor.isBoardMember) {
+    return failure("You are not allowed to delete profiles.");
+  }
+
+  const parsed = DeleteSelectionSchema.safeParse(selection);
+  if (!parsed.success) {
+    return failure("Invalid selection. Reload the dashboard and try again.");
+  }
+
+  const brotherIds = Array.from(new Set(parsed.data.brotherIds));
+  const recruitIds = Array.from(new Set(parsed.data.recruitIds));
+
+  if (brotherIds.length === 0 && recruitIds.length === 0) {
+    return failure("Select at least one profile to delete.");
+  }
+
+  // Reject the whole request rather than quietly deleting everyone else:
+  // a request that includes you is a mistake worth seeing.
+  if (brotherIds.includes(actor.id)) {
+    return failure("You can't delete your own account.");
+  }
+
+  const deletedBrothers: { id: string; image_url: string | null }[] = [];
+  const deletedRecruits: { id: string; image_url: string | null }[] = [];
+
+  const client = await db.connect();
+  try {
+    await client.sql`BEGIN`;
+
+    // Comments reference both tables, so they go first either way.
+    await client.query(
+      `DELETE FROM recruit_comments
+       WHERE recruit_id = ANY($1::uuid[]) OR brother_id = ANY($2::uuid[])`,
+      [recruitIds, brotherIds]
+    );
+
+    if (recruitIds.length > 0) {
+      const result = await client.query<{ id: string; image_url: string | null }>(
+        `DELETE FROM recruits WHERE id = ANY($1::uuid[])
+         RETURNING id, image_url`,
+        [recruitIds]
+      );
+      deletedRecruits.push(...result.rows);
+    }
+
+    if (brotherIds.length > 0) {
+      const result = await client.query<{ id: string; image_url: string | null }>(
+        `DELETE FROM brothers WHERE id = ANY($1::uuid[])
+         RETURNING id, image_url`,
+        [brotherIds]
+      );
+      deletedBrothers.push(...result.rows);
+    }
+
+    await client.sql`COMMIT`;
+  } catch (error) {
+    console.error("Database Error: Failed to delete profiles.", error);
+    try {
+      await client.sql`ROLLBACK`;
+    } catch (rollbackError) {
+      console.error("Failed to roll back deletion:", rollbackError);
+    }
+    return failure("Database Error: Failed to delete the selected profiles.");
+  } finally {
+    client.release();
+  }
+
+  // The rows are gone; clean up their pictures. Awaited rather than detached
+  // so the serverless function can't freeze before the deletes finish, which
+  // is what orphaned blobs before; failures are logged, never fatal.
+  await deleteImageUrls(
+    [...deletedBrothers, ...deletedRecruits].flatMap((row) =>
+      extractImageUrls(row.image_url)
+    )
+  );
+
+  const summary = describeCounts(deletedBrothers.length, deletedRecruits.length);
+
+  revalidatePath("/dashboard");
+  revalidatePath("/brothers");
+  revalidatePath("/recruits");
+
+  return {
+    status: "success",
+    message: summary
+      ? `Deleted ${summary}.`
+      : "Those profiles were already deleted.",
+    deletedBrotherIds: deletedBrothers.map((row) => row.id),
+    deletedRecruitIds: deletedRecruits.map((row) => row.id),
+  };
+}
+
+
+// ============= SITE SWITCHES =============
+
+export type SiteFlagState = {
+  status: "success" | "error";
+  message: string;
+};
+
+/**
+ * Open or close the recruits section for brothers who aren't on the board.
+ *
+ * Board access is re-checked here, so the switch can't be flipped by anyone
+ * who merely knows the action exists.
+ */
+export async function setRecruitsEnabled(
+  enabled: boolean
+): Promise<SiteFlagState> {
+  const actor = await getSessionBrother();
+  if (!actor) {
+    return { status: "error", message: "You must be signed in." };
+  }
+  if (!actor.isBoardMember) {
+    return {
+      status: "error",
+      message: "Only board members can change this setting.",
+    };
+  }
+
+  const written = await writeRecruitsEnabled(enabled, actor.id);
+  if (!written) {
+    return {
+      status: "error",
+      message: "Could not save the setting. Please try again.",
+    };
+  }
+
+  // The recruits link and pages are rendered from this flag everywhere.
+  revalidatePath("/", "layout");
+
+  return {
+    status: "success",
+    message: enabled
+      ? "Recruits are open to all brothers."
+      : "Recruits are now board-only.",
+  };
 }

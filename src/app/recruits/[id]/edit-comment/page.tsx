@@ -1,5 +1,7 @@
 import CommentUpdateForm from "@/app/ui/recruits/CommentUpdateForm";
-import { auth } from "@/auth";
+import { redirect } from "next/navigation";
+import { getRecruitsAccess, loginRedirectFor } from "@/app/lib/board-access";
+import { RecruitsClosed } from "@/app/ui/recruits/RecruitsClosed";
 
 type PageProps = {
   params: Promise<{ id: string }>; // ✅ Explicitly treat params as a Promise
@@ -9,14 +11,15 @@ export default async function Page(props: PageProps) {
   const params = await props.params; // ✅ Await params
   const id = params.id;
 
-  const session = await auth();
-  if (!session || !session.user?.email || !session.user?.id) {
-    console.warn("⚠️ No user session found.");
-    return <div>Please log in to view recruit data.</div>;
+  const access = await getRecruitsAccess();
+  if (access.status === "signed-out") {
+    redirect(loginRedirectFor(`/recruits/${id}/edit-comment`));
+  }
+  if (access.status === "closed") {
+    return <RecruitsClosed title="EDIT COMMENT" />;
   }
 
-  const brotherId = session.user.id;
-  console.log("Brother ID is: ", brotherId);
+  const brotherId = access.brother.id;
 
   return (
     <div className="flex flex-col min-h-screen bg-black text-white">

@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
-import { createBrotherAccount, State } from "@/app/lib/actions";
+import { createRecruitAccount, State } from "@/app/lib/actions";
 import { ExclamationCircleIcon } from "@heroicons/react/24/outline";
 import { useState } from "react";
 import Image from "next/image";
@@ -12,10 +12,10 @@ import {
 } from "@/app/utils/prepareImage";
 import { getValidGraduationYears } from "@/app/lib/graduation-years";
 
-export default function BrotherSignUpPage() {
+export default function RecruitSignUpForm() {
   const initialState: State = { message: null, errors: {} };
-  const [brotherState, brotherFormAction] = useActionState(
-    createBrotherAccount,
+  const [recruitState, recruitFormAction] = useActionState(
+    createRecruitAccount,
     initialState
   );
 
@@ -58,7 +58,7 @@ export default function BrotherSignUpPage() {
       {/* Header Section */}
       <div className="flex overflow-hidden flex-col py-64 bg-black max-md:py-24">
         <div className="gap-2.5 self-start p-2.5 ml-12 text-9xl text-white max-md:max-w-full max-md:text-6xl max-md:ml-[22px] max-sm:text-4xl">
-          SIGN UP AS BROTHER
+          SIGN UP AS RECRUIT
         </div>
       </div>
 
@@ -66,24 +66,11 @@ export default function BrotherSignUpPage() {
       <div className="relative w-full flex flex-col items-center mt-[-5rem]">
         <div className="px-4 max-w-lg mx-auto w-full">
           <form
-            action={brotherFormAction}
+            action={recruitFormAction}
             className="flex flex-col w-full bg-white text-black rounded-md p-10 max-md:p-6 shadow-lg relative"
           >
             {/* Title */}
-            <h2 className="text-4xl font-bold mb-4">Sign Up as a Brother</h2>
-
-            {/* Invitation Code */}
-            <label htmlFor="invite_code" className="mb-2 font-semibold text-lg">
-              Invitation Code
-            </label>
-            <input
-              id="invite_code"
-              type="text"
-              name="invite_code"
-              placeholder="Enter your code"
-              className="rounded-md border border-gray-300 p-2 mb-4 focus:outline-none focus:ring-2 focus:ring-brandRed"
-              required
-            />
+            <h2 className="text-4xl font-bold mb-4">Sign Up as a Recruit</h2>
 
             {/* First Name */}
             <label htmlFor="first_name" className="mb-2 font-semibold text-lg">
@@ -111,50 +98,17 @@ export default function BrotherSignUpPage() {
               required
             />
 
-            {/* Personal Email */}
-            <label
-              htmlFor="personal_email"
-              className="mb-2 font-semibold text-lg"
-            >
-              Personal Email
+            {/* Email */}
+            <label htmlFor="email" className="mb-2 font-semibold text-lg">
+              Email
             </label>
             <input
-              id="personal_email"
+              id="email"
               type="email"
-              name="personal_email"
+              name="email"
               placeholder="you@example.com"
               className="rounded-md border border-gray-300 p-2 mb-4 focus:outline-none focus:ring-2 focus:ring-brandRed"
               required
-            />
-
-            {/* School Email */}
-            <label
-              htmlFor="school_email"
-              className="mb-2 font-semibold text-lg"
-            >
-              School Email
-            </label>
-            <input
-              id="school_email"
-              type="email"
-              name="school_email"
-              placeholder="you@harvard.edu"
-              className="rounded-md border border-gray-300 p-2 mb-4 focus:outline-none focus:ring-2 focus:ring-brandRed"
-              required
-            />
-
-            {/* Password */}
-            <label htmlFor="password" className="mb-2 font-semibold text-lg">
-              Password
-            </label>
-            <input
-              id="password"
-              type="password"
-              name="password"
-              placeholder="********"
-              className="rounded-md border border-gray-300 p-2 mb-6 focus:outline-none focus:ring-2 focus:ring-brandRed"
-              required
-              minLength={6}
             />
 
             {/* Graduation Year */}
@@ -187,99 +141,17 @@ export default function BrotherSignUpPage() {
               required
             />
 
-            {/* House */}
-            <label htmlFor="house" className="mb-2 font-semibold text-lg">
-              House
+            {/* Room */}
+            <label htmlFor="room" className="mb-2 font-semibold text-lg">
+              Room
             </label>
             <input
-              id="house"
+              id="room"
               type="text"
-              name="house"
-              placeholder="House Name"
+              name="room"
+              placeholder="Lowell E-41"
               className="rounded-md border border-gray-300 p-2 mb-4 focus:outline-none focus:ring-2 focus:ring-brandRed"
               required
-            />
-
-            {/* Brother Name */}
-            <label
-              htmlFor="brother_name"
-              className="mb-2 font-semibold text-lg"
-            >
-              Brother Name
-            </label>
-            <input
-              id="brother_name"
-              type="text"
-              name="brother_name"
-              placeholder="Your Brother Name"
-              className="rounded-md border border-gray-300 p-2 mb-4 focus:outline-none focus:ring-2 focus:ring-brandRed"
-              required
-            />
-
-            {/* Birthday */}
-            <label htmlFor="birthday" className="mb-2 font-semibold text-lg">
-              Birthday
-            </label>
-            <input
-              id="birthday"
-              type="date"
-              name="birthday"
-              className="rounded-md border border-gray-300 p-2 mb-4 focus:outline-none focus:ring-2 focus:ring-brandRed"
-              required
-            />
-
-            {/* Location */}
-            <label htmlFor="location" className="mb-2 font-semibold text-lg">
-              Location
-            </label>
-            <input
-              id="location"
-              type="text"
-              name="location"
-              placeholder="City, State"
-              className="rounded-md border border-gray-300 p-2 mb-4 focus:outline-none focus:ring-2 focus:ring-brandRed"
-              required
-            />
-
-            {/* Tagline */}
-            <label htmlFor="tagline" className="mb-2 font-semibold text-lg">
-              Tagline
-            </label>
-            <input
-              id="tagline"
-              type="text"
-              name="tagline"
-              placeholder="Short tagline"
-              className="rounded-md border border-gray-300 p-2 mb-4 focus:outline-none focus:ring-2 focus:ring-brandRed"
-              required
-            />
-
-            {/* No position picker: every new account starts as a New
-                Brother, and only the board can change that from the
-                dashboard. */}
-
-            {/* Bio */}
-            <label htmlFor="bio" className="mb-2 font-semibold text-lg">
-              Bio
-            </label>
-            <textarea
-              id="bio"
-              name="bio"
-              placeholder="Write something about yourself..."
-              className="rounded-md border border-gray-300 p-2 mb-4 focus:outline-none focus:ring-2 focus:ring-brandRed h-24"
-              required
-            />
-
-            {/* Instagram Handle (optional) */}
-            <label htmlFor="instagram" className="mb-2 font-semibold text-lg">
-              Instagram Handle (optional)
-            </label>
-            <input
-              id="instagram"
-              type="text"
-              name="instagram"
-              placeholder="yourhandle"
-              className="rounded-md border border-gray-300 p-2 mb-4 focus:outline-none focus:ring-2 focus:ring-brandRed"
             />
 
             {/* Image Upload */}
@@ -322,7 +194,7 @@ export default function BrotherSignUpPage() {
                   : ""
               }`}
             >
-              Sign Up as a Brother
+              Sign Up as a Recruit
             </button>
 
             {/* Error Message */}
@@ -331,10 +203,10 @@ export default function BrotherSignUpPage() {
               aria-live="polite"
               aria-atomic="true"
             >
-              {brotherState.message && (
+              {recruitState.message && (
                 <>
                   <ExclamationCircleIcon className="h-5 w-5 text-red-500" />
-                  <p className="text-sm text-red-500">{brotherState.message}</p>
+                  <p className="text-sm text-red-500">{recruitState.message}</p>
                 </>
               )}
             </div>

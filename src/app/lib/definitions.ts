@@ -187,6 +187,10 @@ export interface MenuButtonProps {
   text: string;
   icon: string;
   isLoggedIn: boolean;
+  /** Shows the dashboard link only to brothers who can actually open it. */
+  isBoardMember: boolean;
+  /** Hides the recruits link while the board has that section closed. */
+  canSeeRecruits: boolean;
 }
 
 export interface MenuWrapperProps {
@@ -200,3 +204,38 @@ export interface BrotherUser {
   password: string;
   // any other fields from your DB
 }
+
+/** One profile in the management dashboard table, brother or recruit. */
+export type DashboardRow = {
+  id: string;
+  type: DashboardRowType;
+  /** Full name, already joined for display and sorting. */
+  name: string;
+  year: number;
+  /** Board position for a brother, room assignment for a recruit. */
+  detail: string;
+  image_url: string;
+  /** The signed-in brother's own row, which can be edited but never deleted. */
+  isCurrentUser: boolean;
+};
+
+export type DashboardRowType = "brother" | "recruit";
+
+/** Profiles picked for deletion, split by table so each id stays unambiguous. */
+export type DashboardSelection = {
+  brotherIds: string[];
+  recruitIds: string[];
+};
+
+/**
+ * The outcome of a dashboard mutation.
+ *
+ * The deleted ids let the table drop the rows it just removed from its
+ * selection instead of guessing which of them the server actually deleted.
+ */
+export type DeleteProfilesResult = {
+  status: "success" | "error";
+  message: string;
+  deletedBrotherIds: string[];
+  deletedRecruitIds: string[];
+};

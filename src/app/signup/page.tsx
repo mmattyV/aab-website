@@ -1,8 +1,11 @@
-"use client";
-
 import Link from "next/link";
+import { fetchRecruitsEnabled } from "@/app/lib/site-flags";
 
-export default function SignUpLandingPage() {
+export default async function SignUpLandingPage() {
+  // Mirrors /signup/recruit, so the card can't invite someone into a form
+  // that will only turn them away.
+  const recruitsOpen = await fetchRecruitsEnabled();
+
   return (
     <div className="flex overflow-hidden flex-col py-64 bg-black max-md:py-24">
       {/* Page Title */}
@@ -45,12 +48,21 @@ export default function SignUpLandingPage() {
                 become a part of our vibrant community.
               </p>
             </div>
-            <Link
-              href="/signup/recruit"
-              className="px-6 py-3 bg-brandRed hover:bg-white hover:text-black transition text-white rounded-md text-lg flex items-center justify-center shadow-md"
-            >
-              Sign Up as Recruit
-            </Link>
+            {recruitsOpen ? (
+              <Link
+                href="/signup/recruit"
+                className="px-6 py-3 bg-brandRed hover:bg-white hover:text-black transition text-white rounded-md text-lg flex items-center justify-center shadow-md"
+              >
+                Sign Up as Recruit
+              </Link>
+            ) : (
+              <p
+                className="px-6 py-3 bg-gray-800 text-gray-400 rounded-md text-lg flex items-center justify-center shadow-md"
+                aria-disabled="true"
+              >
+                Recruit signups are closed
+              </p>
+            )}
           </div>
         </div>
       </div>

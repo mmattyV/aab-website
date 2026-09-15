@@ -1,12 +1,23 @@
 import { Suspense } from "react";
+import { redirect } from "next/navigation";
 import RecruitFilterTabs from "@/app/ui/recruits/RecruitFilterTabs";
 import RecruitSectionWrapper from "@/app/ui/recruits/RecruitSectionWrapper";
+import { RecruitsClosed } from "@/app/ui/recruits/RecruitsClosed";
+import { getRecruitsAccess, loginRedirectFor } from "@/app/lib/board-access";
 
 type PageProps = {
   searchParams?: Promise<{ tab?: string }>;
 };
 
 export default async function Page({ searchParams }: PageProps) {
+  const access = await getRecruitsAccess();
+  if (access.status === "signed-out") {
+    redirect(loginRedirectFor("/recruits"));
+  }
+  if (access.status === "closed") {
+    return <RecruitsClosed />;
+  }
+
   // ✅ Await the searchParams before using it
   const params = await searchParams;
   const tab = params?.tab || "ALL"; // ✅ Ensure a default value

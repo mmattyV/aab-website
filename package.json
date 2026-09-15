@@ -6,6 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "migrate:site-flags": "tsx migrations/001_site_flags.ts",
+    "migrate:site-flags:execute": "tsx migrations/001_site_flags.ts --execute",
     "lint": "next lint",
     "cleanup-images": "tsx scripts/cleanup-unused-images.ts",
     "cleanup-images:execute": "tsx scripts/cleanup-unused-images.ts --execute",

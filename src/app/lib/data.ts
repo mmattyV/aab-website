@@ -1,5 +1,6 @@
 import {
   BrotherOverviewField,
+  Recruit,
   RecruitOverviewField,
   RecruitCommentProps,
   RecruitProfileProps,
@@ -185,5 +186,53 @@ export async function fetchBrotherByResetToken(token: string) {
   } catch (error) {
     console.error("❌ Error fetching brother by reset token:", error);
     return null;
+  }
+}
+
+/**
+ * The position stored for a brother, used to decide dashboard access.
+ *
+ * Read from the database rather than the session so a position change takes
+ * effect immediately instead of waiting for the JWT to be reissued.
+ */
+export async function fetchBrotherPositionById(
+  id: string
+): Promise<string | null> {
+  if (!id) return null;
+
+  try {
+    const result = await sql<{ position: string }>`
+      SELECT position
+      FROM brothers
+      WHERE id = ${id}
+      LIMIT 1;
+    `;
+
+    return result.rows[0]?.position ?? null;
+  } catch (error) {
+    console.error("❌ Error fetching brother position:", error);
+    return null;
+  }
+}
+
+/** Every stored field for a recruit, for prefilling the management edit form. */
+export async function fetchRecruitForEdit(id: string): Promise<Recruit | null> {
+  if (!id) {
+    console.error("Error: Missing ID for fetchRecruitForEdit");
+    throw new Error("Recruit ID is required.");
+  }
+
+  try {
+    const recruit = await sql<Recruit>`
+      SELECT id, first_name, last_name, email, phone, year, room, image_url
+      FROM recruits
+      WHERE id = ${id}
+      LIMIT 1;
+    `;
+
+    return recruit.rows[0] ?? null;
+  } catch (error) {
+    console.error("❌ Error fetching recruit for edit:", error);
+    throw new Error("Failed to fetch recruit for edit.");
   }
 }
