@@ -14,7 +14,8 @@ export const BrotherSchema = z.object({
   birthday: z.string(),
   location: z.string().min(1),
   tagline: z.string().min(1),
-  position: z.string().min(1),
+  // No `position`: signups are always created as New Brother, so a submitted
+  // value would only be something to ignore.
   bio: z.string().min(1),
   instagram: z.string().optional(),
   // Instead of inline arrow function, define it separately or inline:

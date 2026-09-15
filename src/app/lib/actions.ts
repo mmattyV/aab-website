@@ -22,8 +22,14 @@ import {
   type UploadedProfileImage,
 } from "@/app/lib/blob-images";
 import { getSessionBrother, getRecruitsAccess } from "@/app/lib/board-access";
-import { writeRecruitsEnabled } from "@/app/lib/site-flags";
-import { isAssignablePosition } from "@/app/lib/positions";
+import {
+  writeRecruitsEnabled,
+  fetchRecruitsEnabled,
+} from "@/app/lib/site-flags";
+import {
+  isAssignablePosition,
+  NEW_BROTHER_POSITION,
+} from "@/app/lib/positions";
 import type {
   DashboardSelection,
   DeleteProfilesResult,
@@ -256,7 +262,6 @@ export async function createBrotherAccount(
     birthday: formData.get("birthday")?.toString() || "",
     location: formData.get("location")?.toString() || "",
     tagline: formData.get("tagline")?.toString() || "",
-    position: formData.get("position")?.toString() || "",
     bio: formData.get("bio")?.toString() || "",
     instagram: formData.get("instagram")?.toString() || "",
     image: formData.get("image") as File | null,
@@ -339,7 +344,7 @@ export async function createBrotherAccount(
         ${parsed.data.birthday},
         ${parsed.data.location},
         ${parsed.data.tagline},
-        ${parsed.data.position},
+        ${NEW_BROTHER_POSITION},
         ${parsed.data.bio},
         ${parsed.data.instagram},
         ${uploadedImage.serialized}
@@ -375,6 +380,14 @@ export async function createRecruitAccount(
     return {
       errors: parsed.error.flatten().fieldErrors,
       message: "Validation failed. Please check your inputs.",
+    };
+  }
+
+  // Re-checked here, not just on the page: the form is public, so a stale tab
+  // or a hand-rolled POST must not slip a signup in after the board closed it.
+  if (!(await fetchRecruitsEnabled())) {
+    return {
+      message: "Recruit signups are closed right now.",
     };
   }
 
